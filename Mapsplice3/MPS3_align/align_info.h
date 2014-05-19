@@ -278,7 +278,7 @@ public:
 		mismatchNum = atoi(tmpFieldStr.c_str());
 	}
 
-	Alignment_Info* newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(int firstMatchLength, int spliceJunctionDistance, Index_Info* indexInfo)
+	Alignment_Info* newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(int firstMatchLength, int spliceJunctionDistance, Index_Info* indexInfo, int newMismatchToAddInHead)
 	{
 		//cout << "start to get new alignInfo" << endl;
 		string newAlignDir = alignDirection;
@@ -305,7 +305,7 @@ public:
 			newCigarStringJumpCode.push_back(cigarStringJumpCode[tmp]);
 		}
 		
-		int newMismatch = mismatchNum;
+		int newMismatch = mismatchNum + newMismatchToAddInHead;
 		//cout << "stop 5 " << endl;
 		//cout << newAlignDir << endl;
 		//cout << newAlignChromName << endl;
@@ -328,7 +328,7 @@ public:
 		return newAlignInfo;	
 	}
 
-	Alignment_Info* newAlignInfoAfterAddTailInfo2SoftClippingAlignment(int lastMatchLength, int spliceJunctionDistance, Index_Info* indexInfo)
+	Alignment_Info* newAlignInfoAfterAddTailInfo2SoftClippingAlignment(int lastMatchLength, int spliceJunctionDistance, Index_Info* indexInfo, int newMismatchToAddInTail)
 	{
 		//cout << "start to get new alignInfo" << endl;
 		string newAlignDir = alignDirection;
@@ -352,7 +352,7 @@ public:
 		tmpJumpCode->len = lastMatchLength; tmpJumpCode->type = "M";
 		newCigarStringJumpCode.push_back(*tmpJumpCode);
 
-		int newMismatch = mismatchNum;
+		int newMismatch = mismatchNum + newMismatchToAddInTail;
 
 		Alignment_Info* newAlignInfo = new Alignment_Info(newAlignDir, newAlignChromName,
 			newAlignChromPos, newCigarStringJumpCode, newMismatch, indexInfo);
@@ -695,6 +695,51 @@ public:
 
 	}
 
+	int getFlag_unpaired_secondaryOrNot(bool mapDirection,
+		bool End1OrEnd2Bool, bool SecondaryOrNot )
+	{
+		bool pairEndsReadBool = true;
+		bool bothEndMappedBool = false;
+		bool readUnmappedBool = false;
+		bool anotherEndReadUnmappedBool = true;
+
+		bool mappedAsRcmBool, anotherEndReadMappedAsRcmBool;
+		if(mapDirection)
+		{
+			mappedAsRcmBool = false;
+			anotherEndReadMappedAsRcmBool = false;
+		}
+		else
+		{
+			mappedAsRcmBool = true;
+			anotherEndReadMappedAsRcmBool = false;
+		}
+
+		bool pairEnd_1_bool, pairEnd_2_bool;
+		if(End1OrEnd2Bool)
+		{
+			pairEnd_1_bool = true;
+			pairEnd_2_bool = false;
+		}
+		else
+		{
+			pairEnd_1_bool = false;
+			pairEnd_2_bool = true;
+		}	
+
+		bool notPrimaryAlignmentBool = SecondaryOrNot;
+		bool notPassQualControlBool = false;
+		bool PCRorOpticalDuplicateBool = false;
+		bool suppleAlignmentBool = false;
+
+		int flagInt = this->getFlag(pairEndsReadBool, bothEndMappedBool, readUnmappedBool, anotherEndReadUnmappedBool,
+			mappedAsRcmBool, anotherEndReadMappedAsRcmBool, pairEnd_1_bool, pairEnd_2_bool, 
+			notPrimaryAlignmentBool, notPassQualControlBool, PCRorOpticalDuplicateBool, suppleAlignmentBool); 
+
+		return flagInt;		
+
+	}
+
 	int getFlag_paired(bool mapDirection, 
 		bool End1OrEnd2Bool)
 	{
@@ -730,6 +775,52 @@ public:
 		}
 
 		bool notPrimaryAlignmentBool = false;
+		bool notPassQualControlBool = false;
+		bool PCRorOpticalDuplicateBool = false;
+		bool suppleAlignmentBool = false;
+
+		int flagInt = this->getFlag(pairEndsReadBool, bothEndMappedBool, readUnmappedBool, anotherEndReadUnmappedBool,
+			mappedAsRcmBool, anotherEndReadMappedAsRcmBool, pairEnd_1_bool, pairEnd_2_bool, 
+			notPrimaryAlignmentBool, notPassQualControlBool, PCRorOpticalDuplicateBool, suppleAlignmentBool); 
+
+		return flagInt;
+	}
+
+	int getFlag_paired_secondaryOrNot(bool mapDirection, 
+		bool End1OrEnd2Bool, bool SecondaryOrNot)
+	{
+		//int flagInt = 4;
+
+		bool pairEndsReadBool = true;
+		bool bothEndMappedBool = true;
+		bool readUnmappedBool = false;
+		bool anotherEndReadUnmappedBool = false;
+		
+		bool mappedAsRcmBool, anotherEndReadMappedAsRcmBool;
+		if(mapDirection)
+		{
+			mappedAsRcmBool = false;
+			anotherEndReadMappedAsRcmBool = true;
+		}
+		else
+		{
+			mappedAsRcmBool = true;
+			anotherEndReadMappedAsRcmBool = false;
+		}
+
+		bool pairEnd_1_bool, pairEnd_2_bool;
+		if(End1OrEnd2Bool)
+		{
+			pairEnd_1_bool = true;
+			pairEnd_2_bool = false;
+		}
+		else
+		{
+			pairEnd_1_bool = false;
+			pairEnd_2_bool = true;
+		}
+
+		bool notPrimaryAlignmentBool = SecondaryOrNot;
 		bool notPassQualControlBool = false;
 		bool PCRorOpticalDuplicateBool = false;
 		bool suppleAlignmentBool = false;
@@ -978,6 +1069,95 @@ public:
 
 	}
 
+	string getSamFormatString_unpaired_secondaryOrNot(const string& readName, const string& readSeq, 
+		//Alignment_Info* mateAlignInfo, 
+		bool End1OrEnd2, int IH_num, int HI_num, bool secondaryOrNot)
+	{
+		string samString;
+
+		int FLAG;
+		string RNAME;
+		int POS;
+		///////////////////// get FLAG, RNAME and POS ///////////////////////////
+		if(alignDirection == "+")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;
+			FLAG = getFlag_unpaired_secondaryOrNot(true, End1OrEnd2, secondaryOrNot);//0;
+		}
+		else if(alignDirection == "-")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;			
+			FLAG = getFlag_unpaired_secondaryOrNot(false, End1OrEnd2, secondaryOrNot); //16;
+		}
+		else
+		{
+			RNAME = "*";
+			POS = 0;
+			FLAG = 4;
+		}
+		////////////////////////////////////////////////////////////////////////
+		int MAPQ = 255;
+		string CIGAR = this->jumpCodeVec2Str();
+		string RNEXT = "*"; //mateAlignInfo->alignChromName; //"*";
+		int PNEXT = 0;//mateAlignInfo->alignChromPos; // 0;
+		int TLEN = 0;
+		//string SEQ;
+		string QUAL = "*";
+		string strandStr = SJstrand;
+
+		string FLAGstr; 
+		string POSstr; 
+		string MAPQstr; 
+		string PNEXTstr; 
+		string TLENstr; 
+		string mismatchNumStr;
+		string IHstr;
+		string HIstr;
+		/*FLAGstr = int_to_str_sstream(FLAG);
+		POSstr = int_to_str_sstream(POS);
+		MAPQstr = int_to_str_sstream(MAPQ);
+		PNEXTstr = int_to_str_sstream(PNEXT);
+		TLENstr = int_to_str_sstream(TLEN);
+		mismatchNumStr = int_to_str_sstream(mismatchNum);*/
+		FLAGstr = int_to_str(FLAG);
+		POSstr = int_to_str(POS);
+		MAPQstr = int_to_str(MAPQ);
+		PNEXTstr = int_to_str(PNEXT);
+		TLENstr = int_to_str(TLEN);
+		mismatchNumStr = int_to_str(mismatchNum);
+		IHstr = int_to_str(IH_num);
+		HIstr = int_to_str(HI_num);
+
+		samString = readName + "\t" 
+			+ FLAGstr + "\t" 
+			+ RNAME + "\t"
+			+ POSstr + "\t" 
+			+ MAPQstr + "\t" 
+			+ CIGAR + "\t" 
+			+ RNEXT + "\t" 
+			+ PNEXTstr + "\t" 
+			+ TLENstr + "\t" 
+			+ readSeq + "\t" 
+			+ QUAL 
+			+ "\tNM:i:" + mismatchNumStr 
+			+ "\tIH:i:" + IHstr
+			+ "\tHI:i:" + HIstr
+			+ "\tXS:A:" + strandStr 
+			+ "\tXF:Z:"
+			;
+
+
+		for(int tmp = 0; tmp < spliceJunctionVec.size(); tmp++)
+		{
+			samString = samString + (spliceJunctionVec[tmp].second).flankString + ","; 
+		}
+
+		return samString;
+
+	}
+
 	string getSamFormatString_paired(const string& readName, const string& readSeq, 
 		Alignment_Info* mateAlignInfo, bool End1OrEnd2, int IH_num, int HI_num)
 	{
@@ -1067,6 +1247,95 @@ public:
 		return samString;
 	}
 
+	string getSamFormatString_paired_secondaryOrNot(const string& readName, const string& readSeq, 
+		Alignment_Info* mateAlignInfo, bool End1OrEnd2, int IH_num, int HI_num, bool SecondaryOrNot)
+	{
+		string samString;
+
+		int FLAG;
+		string RNAME;
+		int POS;
+
+		///////////////////// get FLAG, RNAME and POS ///////////////////////////
+		if(alignDirection == "+")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;
+			FLAG = getFlag_paired_secondaryOrNot(true, End1OrEnd2, SecondaryOrNot);//0;
+		}
+		else if(alignDirection == "-")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;			
+			FLAG = getFlag_paired_secondaryOrNot(false, End1OrEnd2, SecondaryOrNot); //16;
+		}
+		else
+		{
+			RNAME = "*";
+			POS = 0;
+			FLAG = 4;
+		}
+		////////////////////////////////////////////////////////////////////////
+
+		int MAPQ = 255;
+		string CIGAR = this->jumpCodeVec2Str();
+		string RNEXT = "="; //mateAlignInfo->alignChromName; //"*";
+		int PNEXT = mateAlignInfo->alignChromPos; // 0;
+		int TLEN = 0;
+		//string SEQ;
+		string QUAL = "*";
+		string strandStr = SJstrand;
+
+		string FLAGstr; 
+		string POSstr; 
+		string MAPQstr; 
+		string PNEXTstr; 
+		string TLENstr; 
+		string mismatchNumStr;
+		string IHstr;
+		string HIstr;
+		/*FLAGstr = int_to_str_sstream(FLAG);
+		POSstr = int_to_str_sstream(POS);
+		MAPQstr = int_to_str_sstream(MAPQ);
+		PNEXTstr = int_to_str_sstream(PNEXT);
+		TLENstr = int_to_str_sstream(TLEN);
+		mismatchNumStr = int_to_str_sstream(mismatchNum);*/
+		FLAGstr = int_to_str(FLAG);
+		POSstr = int_to_str(POS);
+		MAPQstr = int_to_str(MAPQ);
+		PNEXTstr = int_to_str(PNEXT);
+		TLENstr = int_to_str(TLEN);
+		mismatchNumStr = int_to_str(mismatchNum);
+		IHstr = int_to_str(IH_num);
+		HIstr = int_to_str(HI_num);
+
+		samString = readName + "\t" 
+			+ FLAGstr + "\t" 
+			+ RNAME + "\t"
+			+ POSstr + "\t" 
+			+ MAPQstr + "\t" 
+			+ CIGAR + "\t" 
+			+ RNEXT + "\t" 
+			+ PNEXTstr + "\t" 
+			+ TLENstr + "\t" 
+			+ readSeq + "\t" 
+			+ QUAL 
+			+ "\tNM:i:" + mismatchNumStr 
+			+ "\tIH:i:" + IHstr
+			+ "\tHI:i:" + HIstr
+			+ "\tXS:A:" + strandStr 
+			+ "\tXF:Z:"
+			;
+
+
+		for(int tmp = 0; tmp < spliceJunctionVec.size(); tmp++)
+		{
+			samString = samString + (spliceJunctionVec[tmp].second).flankString + ","; 
+		}
+
+		return samString;
+	}
+
 	bool checkOverlapPairAlignment(Alignment_Info* secondAlignmentInfo) // parameter is another alignment 
 	{
 		bool SJinOverlapAreaNoConflict = true;
@@ -1086,7 +1355,7 @@ public:
 				norAlignSJvecInOverlapArea.push_back(pair<int,int> (tmpDonerPosInChr, tmpAcceptorPosInChr));
 			}
 			else
-			{			}
+			{}
 		} 
 
 		for(int tmp = 0; tmp < (secondAlignmentInfo->spliceJunctionVec).size(); tmp++)
@@ -1098,7 +1367,80 @@ public:
 				rcmAlignSJvecInOverlapArea.push_back(pair<int,int> (tmpDonerPosInChr, tmpAcceptorPosInChr));
 			}
 			else
-			{			}
+			{}
+		} 
+
+		if(norAlignSJvecInOverlapArea.size() == rcmAlignSJvecInOverlapArea.size())
+		{
+			for(int tmp = 0; tmp < norAlignSJvecInOverlapArea.size(); tmp++)
+			{
+				if((norAlignSJvecInOverlapArea[tmp].first == rcmAlignSJvecInOverlapArea[tmp].first)
+					&&(norAlignSJvecInOverlapArea[tmp].second == rcmAlignSJvecInOverlapArea[tmp].second))
+				{
+					SJinOverlapAreaNoConflict = true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+		}
+		else
+		{
+			return false;
+		}
+
+		return SJinOverlapAreaNoConflict;
+	}
+
+	bool checkOverlapPairAlignment_new(Alignment_Info* secondAlignmentInfo) // parameter is another alignment 
+	{
+		bool SJinOverlapAreaNoConflict = true;
+
+		int overlapStartPos_1 = this->alignChromPos;
+		int overlapStartPos_2 = secondAlignmentInfo->alignChromPos;
+		int overlapEndPos_1 = this->endMatchedPosInChr;
+		int overlapEndPos_2 = secondAlignmentInfo->endMatchedPosInChr;
+
+		int overlapStartPos;
+		int overlapEndPos;
+		
+		if(overlapStartPos_1 > overlapStartPos)
+			overlapStartPos = overlapStartPos_1;
+		else
+			overlapStartPos = overlapStartPos_2;
+
+		if(overlapEndPos_1 < overlapEndPos_2)
+			overlapEndPos = overlapEndPos_1;
+		else
+			overlapEndPos = overlapEndPos_2;
+
+
+		int tmpDonerPosInChr, tmpAcceptorPosInChr;
+		vector< pair<int, int> > norAlignSJvecInOverlapArea;
+		vector< pair<int, int> > rcmAlignSJvecInOverlapArea;
+		for(int tmp = 0; tmp < (this->spliceJunctionVec).size(); tmp++)
+		{
+			if(((this->spliceJunctionVec)[tmp].second).SJdonerEnd <= overlapStartPos)
+			{
+				tmpDonerPosInChr = ((this->spliceJunctionVec)[tmp].second).SJdonerEnd;
+				tmpAcceptorPosInChr = ((this->spliceJunctionVec)[tmp].second).SJacceptorStart;
+				norAlignSJvecInOverlapArea.push_back(pair<int,int> (tmpDonerPosInChr, tmpAcceptorPosInChr));
+			}
+			else
+			{}
+		} 
+
+		for(int tmp = 0; tmp < (secondAlignmentInfo->spliceJunctionVec).size(); tmp++)
+		{
+			if(((secondAlignmentInfo->spliceJunctionVec)[tmp].second).SJacceptorStart >= overlapEndPos)
+			{
+				tmpDonerPosInChr = ((secondAlignmentInfo->spliceJunctionVec)[tmp].second).SJdonerEnd;
+				tmpAcceptorPosInChr = ((secondAlignmentInfo->spliceJunctionVec)[tmp].second).SJacceptorStart;
+				rcmAlignSJvecInOverlapArea.push_back(pair<int,int> (tmpDonerPosInChr, tmpAcceptorPosInChr));
+			}
+			else
+			{}
 		} 
 
 		if(norAlignSJvecInOverlapArea.size() == rcmAlignSJvecInOverlapArea.size())
@@ -1144,28 +1486,13 @@ public:
 	vector< pair< int, vector<int> > > oriAlignPair_Nor1Rcm2;
 	vector< pair< int, vector<int> > > oriAlignPair_Nor2Rcm1;
 
+	vector< pair< int, int > > oriAlignPair_Nor1Rcm2_filtered;
+	vector< pair< int, int > > oriAlignPair_Nor2Rcm1_filtered;	
+
 	vector< pair< int, int > > finalAlignPair_Nor1Rcm2;
 	vector< pair< int, int > > finalAlignPair_Nor2Rcm1;
 
 	vector<bool> otherEndUnmappedBoolVec;
-
-	//vector< pair < SamFormat*, SamFormat* > > finalSamFormat_Nor1Rcm2;
-	//vector< pair < SamFormat*, SamFormat* > > finalSamFormat_Nor2Rcm1;
-
-	/*void generateNewPeReadAndPeAlignInfo(PE_Read_Info* peReadInfo, const string& readName_1, const string& readName_2,
-		const string& readSeq_1, const string& readSeq_2, )
-	{
-
-	}*/
-
-	/*void generateOtherEndUnmappedBoolVec();
-	{
-		otherEndUnmappedBoolVec.clear();
-		if((norAlignmentInfo_PE_1.size() > 0)&&(rcmAlignmentInfo_PE_2.size() == 0))
-			otherEndUnmappedBoolVec.push_back(true);
-		else
-			otherEndUnmappedBoolVec.push_back(false);
-	}*/
 
 
 	void generatePeReadInfoAndPeAlignInfo_Fasta_toFixOneEndUnmapped_fgets(const string& line1, const string& line2, 
@@ -2008,61 +2335,7 @@ public:
 		return pairConflict;
 	}
 
-	/*bool checkAllPairCompletelyMapped(int readLength) //check 
-	{
-		bool allCompletelyMapped = true;
-		int tmpAlignmentNO;
-		for(int tmp = 0; tmp < oriAlignPair_Nor1Rcm2.size(); tmp++)
-		{
-			tmpAlignmentNO = oriAlignPair_Nor1Rcm2[tmp].first;
-			if((norAlignmentInfo_PE_1[tmpAlignmentNO]->mappedLength()) != readLength)
-			{
-				return false;
-			}
-			else
-			{	}
-		}		
 
-		for(int tmp = 0; tmp < oriAlignPair_Nor2Rcm1.size(); tmp++)
-		{
-			tmpAlignmentNO = oriAlignPair_Nor2Rcm1[tmp].first;
-			if((norAlignmentInfo_PE_2[tmpAlignmentNO]->mappedLength()) != readLength)
-			{
-				return false;
-			}
-			else
-			{	}
-		}
-		for(int tmp = 0; tmp < oriAlignPair_Nor1Rcm2.size(); tmp++)
-		{
-			for(int tmp2 = 0; tmp2 < (oriAlignPair_Nor1Rcm2[tmp].second).size();
-				tmp2++)
-			{
-				tmpAlignmentNO = (oriAlignPair_Nor1Rcm2[tmp].second)[tmp2];
-				if((rcmAlignmentInfo_PE_2[tmpAlignmentNO]->mappedLength()) != readLength)
-				{
-					return false;
-				}
-				else
-				{	}
-			}
-		}
-		for(int tmp = 0; tmp < oriAlignPair_Nor2Rcm1.size(); tmp++)
-		{
-			for(int tmp2 = 0; tmp2 < (oriAlignPair_Nor2Rcm1[tmp].second).size();
-				tmp2++)
-			{
-				tmpAlignmentNO = (oriAlignPair_Nor2Rcm1[tmp].second)[tmp2];
-				if((rcmAlignmentInfo_PE_1[tmpAlignmentNO]->mappedLength()) != readLength)
-				{
-					return false;
-				}
-				else
-				{	}
-			}
-		}
-		return allCompletelyMapped;
-	}*/
 
 	void getEndMatchPosForEveryAlignment()
 	{
@@ -2263,6 +2536,341 @@ public:
 
 		///////////////// 3. reads can be mapped to different places in one direction //////////////////
 	}
+
+	void pairingAlignment2OriPair()
+	{
+		//cout << "start to pair ... " << endl;
+		this->getEndMatchPosForEveryAlignment();
+
+		Alignment_Info* tmpAlignInfo_1;
+		Alignment_Info* tmpAlignInfo_2;
+		bool newEntity = false;
+		//cout << "start to pair Nor1Rcm2... " << endl;
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); tmp++) 
+		//pair norAlignmentInfo_PE_1 & rcmAlignmentInfo_PE_2
+		{
+			newEntity = true;
+			tmpAlignInfo_1 = norAlignmentInfo_PE_1[tmp];
+
+			if(tmpAlignInfo_1 -> SJstrand == "X")
+			{
+				continue;
+			}
+
+			for(int tmp2 = 0; tmp2 < rcmAlignmentInfo_PE_2.size(); tmp2++)
+			{
+
+				tmpAlignInfo_2 = rcmAlignmentInfo_PE_2[tmp2];
+				
+				if((tmpAlignInfo_2 -> SJstrand == "X")
+					||((tmpAlignInfo_1 -> SJstrand == "+")&&(tmpAlignInfo_2 -> SJstrand == "-"))
+					||((tmpAlignInfo_1 -> SJstrand == "-")&&(tmpAlignInfo_2 -> SJstrand == "+")))
+				{
+					continue;
+				}		
+
+				if((tmpAlignInfo_1->alignChromName) == (tmpAlignInfo_2->alignChromName))
+				{
+					if(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->alignChromPos)
+					{
+						if( ((tmpAlignInfo_2->alignChromPos) - (tmpAlignInfo_1->endMatchedPosInChr))< PAIR_READ_DISTANCE_MAX)
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor1Rcm2.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor1Rcm2[oriAlignPair_Nor1Rcm2.size()-1].second).push_back(tmp2);
+							}
+						}
+						else
+						{
+							//two far away 
+						}
+					}
+					else if((tmpAlignInfo_1->alignChromPos <= tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr))
+					{
+						//Note: In addition should check whether they cross the same SJs or not
+						if(tmpAlignInfo_1->checkOverlapPairAlignment(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor1Rcm2.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor1Rcm2[oriAlignPair_Nor1Rcm2.size()-1].second).push_back(tmp2);
+							}
+						}
+						else
+						{}
+					}
+					else if(
+						(tmpAlignInfo_1->alignChromPos <= tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr > tmpAlignInfo_2->endMatchedPosInChr)
+							&&(tmpAlignInfo_2->unfixedTailExistsBool()) // pe_2 read has unfixed tail
+							 )
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor1Rcm2.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor1Rcm2[oriAlignPair_Nor1Rcm2.size()-1].second).push_back(tmp2);
+							}
+						}
+						else
+						{}
+					}
+					else if (
+						(tmpAlignInfo_1->alignChromPos > tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr)
+							&&(tmpAlignInfo_1->unfixedHeadExistsBool()) // pe_1 read has unfixed head
+							)
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor1Rcm2.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor1Rcm2[oriAlignPair_Nor1Rcm2.size()-1].second).push_back(tmp2);
+							}
+						}
+						else
+						{}
+					}
+					else if (
+							(tmpAlignInfo_1->unfixedHeadExistsBool()) // pe_1 read has unfixed head
+							&&(tmpAlignInfo_2->unfixedTailExistsBool()) // pe_2 read has unfixed tail
+							&&(tmpAlignInfo_1->alignChromPos > tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr > tmpAlignInfo_2->endMatchedPosInChr)
+							//&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr)
+							&&( (tmpAlignInfo_1->endMatchedPosInChr)-(tmpAlignInfo_2->alignChromPos) < PAIR_READ_DISTANCE_MAX)							
+							)
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor1Rcm2.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor1Rcm2[oriAlignPair_Nor1Rcm2.size()-1].second).push_back(tmp2);
+							}
+						}
+						else
+						{}
+					}
+					else
+					{
+
+					}
+				}
+				else
+				{
+
+				}
+			}
+		}
+		//cout << "start to pair Nor2Rcm1... " << endl;
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); tmp++)
+		{
+			newEntity = true;
+			tmpAlignInfo_1 = norAlignmentInfo_PE_2[tmp];
+			
+			if(tmpAlignInfo_1 -> SJstrand == "X")
+			{
+				continue;
+			}
+
+			for(int tmp2 = 0; tmp2 < rcmAlignmentInfo_PE_1.size(); tmp2++)
+			{
+				tmpAlignInfo_2 = rcmAlignmentInfo_PE_1[tmp2];
+
+				if((tmpAlignInfo_2 -> SJstrand == "X")
+					||((tmpAlignInfo_1 -> SJstrand == "+")&&(tmpAlignInfo_2 -> SJstrand == "-"))
+					||((tmpAlignInfo_1 -> SJstrand == "-")&&(tmpAlignInfo_2 -> SJstrand == "+")))
+				{
+					continue;
+				}					
+				
+				if((tmpAlignInfo_1->alignChromName) == (tmpAlignInfo_2->alignChromName))
+				{
+					if(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->alignChromPos)
+					{
+						if(((tmpAlignInfo_2->alignChromPos) - (tmpAlignInfo_1->endMatchedPosInChr)) < PAIR_READ_DISTANCE_MAX)
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor1Rcm2
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor2Rcm1.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor1Rcm2
+							{
+								(oriAlignPair_Nor2Rcm1[oriAlignPair_Nor2Rcm1.size()-1].second).push_back(tmp2);
+								newEntity = false;
+							}
+						}
+						else
+						{
+							//two far away 
+						}
+					}
+					else if((tmpAlignInfo_1->alignChromPos <= tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr))
+					{
+
+						//Note: In addition should check whether they cross the same SJs or not
+						if(tmpAlignInfo_1->checkOverlapPairAlignment(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor2Rcm1
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor2Rcm1.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor2Rcm1
+							{
+								(oriAlignPair_Nor2Rcm1[oriAlignPair_Nor2Rcm1.size()-1].second).push_back(tmp2);
+								newEntity = false;
+							}
+						}
+						else
+						{}
+					}
+					else if(
+						(tmpAlignInfo_1->alignChromPos <= tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr > tmpAlignInfo_2->endMatchedPosInChr)
+							&&(tmpAlignInfo_2->unfixedTailExistsBool()) // pe_2 read has unfixed tail
+							)
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor2Rcm1
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor2Rcm1.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor2Rcm1
+							{
+								(oriAlignPair_Nor2Rcm1[oriAlignPair_Nor2Rcm1.size()-1].second).push_back(tmp2);
+								newEntity = false;
+							}
+						}
+						else
+						{}
+					}
+					else if (
+						(tmpAlignInfo_1->alignChromPos > tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr)
+							&&(tmpAlignInfo_1->unfixedHeadExistsBool()) // pe_1 read has unfixed head
+							)
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor2Rcm1
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor2Rcm1.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor2Rcm1
+							{
+								(oriAlignPair_Nor2Rcm1[oriAlignPair_Nor2Rcm1.size()-1].second).push_back(tmp2);
+								newEntity = false;
+							}
+						}
+						else
+						{}
+					}
+					else if (
+							(tmpAlignInfo_1->unfixedHeadExistsBool()) // pe_1 read has unfixed head
+							&&(tmpAlignInfo_2->unfixedTailExistsBool()) // pe_2 read has unfixed tail
+							&&(tmpAlignInfo_1->alignChromPos > tmpAlignInfo_2->alignChromPos)
+							&&(tmpAlignInfo_1->endMatchedPosInChr > tmpAlignInfo_2->endMatchedPosInChr)
+							//&&(tmpAlignInfo_1->endMatchedPosInChr <= tmpAlignInfo_2->endMatchedPosInChr)
+							&&( (tmpAlignInfo_1->endMatchedPosInChr)-(tmpAlignInfo_2->alignChromPos) < PAIR_READ_DISTANCE_MAX)							
+							)
+					{
+						if(tmpAlignInfo_1->checkOverlapPairAlignment_new(tmpAlignInfo_2))
+						{
+							if(newEntity) //tmp is not in oriAlignPair_Nor2Rcm1
+							{
+								vector<int> newTmpVec;
+								newTmpVec.push_back(tmp2);
+								oriAlignPair_Nor2Rcm1.push_back(pair<int, vector<int> > (tmp, newTmpVec));
+								newEntity = false;
+							}
+							else //tmp has already been in oriAlignPair_Nor2Rcm1
+							{
+								(oriAlignPair_Nor2Rcm1[oriAlignPair_Nor2Rcm1.size()-1].second).push_back(tmp2);
+								newEntity = false;
+							}
+						}
+						else
+						{}
+					}
+					else
+					{
+
+					}
+				}
+				else
+				{
+
+				}
+			}
+		}
+		///////////////// 1. only one end read mapped, another one unmapped ///////////////////////
+
+		///////////////// 2. reads can be mapped under both directions //////////////////////////
+
+		///////////////// 3. reads can be mapped to different places in one direction //////////////////
+	}
+
+	/*void filterOriPair()
+	{
+		for()
+		{
+
+		}
+
+		// filter oriAlignPair_Nor2
+		for()
+		{
+
+		}
+	}*/
 
 	void chooseBestAlignment()
 	{
@@ -2498,163 +3106,6 @@ public:
 		return tmpStr;
 	}
 
-	string getTmpAlignInfo(const string& readName_1,
-		const string& readName_2, const string& readOriSeq_1, 
-		const string& readOriSeq_2, const string& readOriQualSeq_1,
-		const string& readOriQualSeq_2)
-	{
-		string tmpAlignInfoStr = "\n" + readName_1 + "\t" 
-			+ int_to_str(norAlignmentInfo_PE_1.size()) + "\t"
-			+ int_to_str(rcmAlignmentInfo_PE_1.size()) + "\n"
-			+ readOriSeq_1 + "\n" + readOriQualSeq_1 + "\n"
-			+ readName_2 + "\t"
-			+ int_to_str(norAlignmentInfo_PE_2.size()) + "\t"
-			+ int_to_str(rcmAlignmentInfo_PE_2.size()) + "\n"
-			+ readOriSeq_2 + "\n" + readOriQualSeq_2; 
-
-		Alignment_Info* tmpAlignInfo;
-		string tmpNorAlignInfo_1;
-		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); tmp++)
-		{
-			if(norAlignmentInfo_PE_1.size() >= 40)
-			{
-				break;
-			}
-			tmpAlignInfo = norAlignmentInfo_PE_1[tmp];
-			tmpNorAlignInfo_1 = tmpNorAlignInfo_1 
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}
-		string tmpRcmAlignInfo_1;
-		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); tmp++)
-		{
-			if(rcmAlignmentInfo_PE_1.size() >= 40)
-			{
-				break;
-			}
-			tmpAlignInfo = rcmAlignmentInfo_PE_1[tmp];
-			tmpRcmAlignInfo_1 = tmpRcmAlignInfo_1
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}
-		string tmpNorAlignInfo_2;
-		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); tmp++)
-		{
-			if(norAlignmentInfo_PE_2.size() >= 40)
-			{
-				break;
-			}
-			tmpAlignInfo = norAlignmentInfo_PE_2[tmp];
-			tmpNorAlignInfo_2 = tmpNorAlignInfo_2
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}
-		string tmpRcmAlignInfo_2;
-		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); tmp++)
-		{
-			if(rcmAlignmentInfo_PE_2.size() >= 40)
-			{
-				break;
-			}
-			tmpAlignInfo = rcmAlignmentInfo_PE_2[tmp];
-			tmpRcmAlignInfo_2 = tmpRcmAlignInfo_2
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}	
-
-		tmpAlignInfoStr = tmpAlignInfoStr + "\n" 
-			+ "Nor_1:\t" + tmpNorAlignInfo_1 + "\n"
-			+ "Rcm_1:\t" + tmpRcmAlignInfo_1 + "\n"
-			+ "Nor_2:\t" + tmpNorAlignInfo_2 + "\n"
-			+ "Rcm_2:\t" + tmpRcmAlignInfo_2; 
-		return tmpAlignInfoStr;
-	}
-
-	string getTmpAlignInfoForFinalPair(const string& readName_1,
-		const string& readName_2, const string& readOriSeq_1, 
-		const string& readOriSeq_2, const string& readOriQualSeq_1,
-		const string& readOriQualSeq_2)
-	{
-		string tmpAlignInfoStr = "\n" + readName_1 + "\t" 
-			+ int_to_str(finalAlignPair_Nor1Rcm2.size()) + "\t"
-			+ int_to_str(finalAlignPair_Nor2Rcm1.size()) + "\n"
-			+ readOriSeq_1 + "\n" + readOriQualSeq_1 + "\n"
-			+ readName_2 + "\t"
-			+ int_to_str(finalAlignPair_Nor2Rcm1.size()) + "\t"
-			+ int_to_str(finalAlignPair_Nor1Rcm2.size()) + "\n"
-			+ readOriSeq_2 + "\n" + readOriQualSeq_2; 
-
-		Alignment_Info* tmpAlignInfo;
-
-		string tmpNorAlignInfo_1;
-		for(int tmpNor1Rcm2 = 0; tmpNor1Rcm2 < finalAlignPair_Nor1Rcm2.size(); tmpNor1Rcm2++)
-		{
-			if(finalAlignPair_Nor1Rcm2.size() >= 40)
-				{break;}
-
-			int tmp = finalAlignPair_Nor1Rcm2[tmpNor1Rcm2].first;
-			tmpAlignInfo = norAlignmentInfo_PE_1[tmp];
-			tmpNorAlignInfo_1 = tmpNorAlignInfo_1 
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}
-		string tmpRcmAlignInfo_1;
-		for(int tmpNor2Rcm1 = 0; tmpNor2Rcm1 < finalAlignPair_Nor2Rcm1.size(); tmpNor2Rcm1++)
-		{
-			if(finalAlignPair_Nor2Rcm1.size() >= 40)
-				{break;}
-			int tmp = finalAlignPair_Nor2Rcm1[tmpNor2Rcm1].second;
-			tmpAlignInfo = rcmAlignmentInfo_PE_1[tmp];
-			tmpRcmAlignInfo_1 = tmpRcmAlignInfo_1
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";			
-		}		
-		string tmpNorAlignInfo_2;
-		for(int tmpNor2Rcm1 = 0; tmpNor2Rcm1 < finalAlignPair_Nor2Rcm1.size(); tmpNor2Rcm1++)
-		{
-			if(finalAlignPair_Nor2Rcm1.size() >= 40)
-				{break;}
-			int tmp = finalAlignPair_Nor2Rcm1[tmpNor2Rcm1].first;
-			tmpAlignInfo = norAlignmentInfo_PE_2[tmp];
-			tmpNorAlignInfo_2 = tmpNorAlignInfo_2
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}
-		string tmpRcmAlignInfo_2;
-		for(int tmpNor1Rcm2 = 0; tmpNor1Rcm2 < finalAlignPair_Nor1Rcm2.size(); tmpNor1Rcm2++)
-		{
-			if(finalAlignPair_Nor1Rcm2.size() >= 40)
-				{break;}
-			int tmp = finalAlignPair_Nor1Rcm2[tmpNor1Rcm2].second;
-			tmpAlignInfo = rcmAlignmentInfo_PE_2[tmp];
-			tmpRcmAlignInfo_2 = tmpRcmAlignInfo_2
-				+ tmpAlignInfo->alignChromName + ","
-				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
-				+ tmpAlignInfo->jumpCodeVec2Str() + ","
-				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
-		}		
-		tmpAlignInfoStr = tmpAlignInfoStr + "\n" 
-			+ "Nor_1:\t" + tmpNorAlignInfo_1 + "\n"
-			+ "Rcm_1:\t" + tmpRcmAlignInfo_1 + "\n"
-			+ "Nor_2:\t" + tmpNorAlignInfo_2 + "\n"
-			+ "Rcm_2:\t" + tmpRcmAlignInfo_2; 
-		return tmpAlignInfoStr;
-	}
-
 	string printTmpPEreadAlignInfoForDebug()
 	{
 		string printOutStr = "1_nor:\n";
@@ -2840,6 +3291,190 @@ public:
 		string returnStr = tmpSamStr.substr(0, tmpSamStr.length()-1);
 		return returnStr;
 	}	
+
+	
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////// Output AlignInfo functions For Fasta Reads ///////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////// Output AlignInfo functions For Fasta Reads ///////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	string getTmpAlignInfo(const string& readName_1_ori,
+		const string& readName_2_ori, const string& readOriSeq_1, 
+		const string& readOriSeq_2, const string& readOriQualSeq_1,
+		const string& readOriQualSeq_2)
+	{
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
+		string tmpAlignInfoStr = "\n" + readName_1 + "\t" 
+			+ int_to_str(norAlignmentInfo_PE_1.size()) + "\t"
+			+ int_to_str(rcmAlignmentInfo_PE_1.size()) + "\n"
+			+ readOriSeq_1 + "\n" + readOriQualSeq_1 + "\n"
+			+ readName_2 + "\t"
+			+ int_to_str(norAlignmentInfo_PE_2.size()) + "\t"
+			+ int_to_str(rcmAlignmentInfo_PE_2.size()) + "\n"
+			+ readOriSeq_2 + "\n" + readOriQualSeq_2; 
+
+		Alignment_Info* tmpAlignInfo;
+		string tmpNorAlignInfo_1;
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); tmp++)
+		{
+			if(norAlignmentInfo_PE_1.size() >= 40)
+			{
+				break;
+			}
+			tmpAlignInfo = norAlignmentInfo_PE_1[tmp];
+			tmpNorAlignInfo_1 = tmpNorAlignInfo_1 
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}
+		string tmpRcmAlignInfo_1;
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); tmp++)
+		{
+			if(rcmAlignmentInfo_PE_1.size() >= 40)
+			{
+				break;
+			}
+			tmpAlignInfo = rcmAlignmentInfo_PE_1[tmp];
+			tmpRcmAlignInfo_1 = tmpRcmAlignInfo_1
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}
+		string tmpNorAlignInfo_2;
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); tmp++)
+		{
+			if(norAlignmentInfo_PE_2.size() >= 40)
+			{
+				break;
+			}
+			tmpAlignInfo = norAlignmentInfo_PE_2[tmp];
+			tmpNorAlignInfo_2 = tmpNorAlignInfo_2
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}
+		string tmpRcmAlignInfo_2;
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); tmp++)
+		{
+			if(rcmAlignmentInfo_PE_2.size() >= 40)
+			{
+				break;
+			}
+			tmpAlignInfo = rcmAlignmentInfo_PE_2[tmp];
+			tmpRcmAlignInfo_2 = tmpRcmAlignInfo_2
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}	
+
+		tmpAlignInfoStr = tmpAlignInfoStr + "\n" 
+			+ "Nor_1:\t" + tmpNorAlignInfo_1 + "\n"
+			+ "Rcm_1:\t" + tmpRcmAlignInfo_1 + "\n"
+			+ "Nor_2:\t" + tmpNorAlignInfo_2 + "\n"
+			+ "Rcm_2:\t" + tmpRcmAlignInfo_2; 
+		return tmpAlignInfoStr;
+	}
+
+	string getTmpAlignInfoForFinalPair(const string& readName_1_ori,
+		const string& readName_2_ori, const string& readOriSeq_1, 
+		const string& readOriSeq_2, const string& readOriQualSeq_1,
+		const string& readOriQualSeq_2)
+	{
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
+		string tmpAlignInfoStr = "\n" + readName_1 + "\t" 
+			+ int_to_str(finalAlignPair_Nor1Rcm2.size()) + "\t"
+			+ int_to_str(finalAlignPair_Nor2Rcm1.size()) + "\n"
+			+ readOriSeq_1 + "\n" + readOriQualSeq_1 + "\n"
+			+ readName_2 + "\t"
+			+ int_to_str(finalAlignPair_Nor2Rcm1.size()) + "\t"
+			+ int_to_str(finalAlignPair_Nor1Rcm2.size()) + "\n"
+			+ readOriSeq_2 + "\n" + readOriQualSeq_2; 
+
+		Alignment_Info* tmpAlignInfo;
+
+		string tmpNorAlignInfo_1;
+		for(int tmpNor1Rcm2 = 0; tmpNor1Rcm2 < finalAlignPair_Nor1Rcm2.size(); tmpNor1Rcm2++)
+		{
+			if(finalAlignPair_Nor1Rcm2.size() >= 40)
+				{break;}
+
+			int tmp = finalAlignPair_Nor1Rcm2[tmpNor1Rcm2].first;
+			tmpAlignInfo = norAlignmentInfo_PE_1[tmp];
+			tmpNorAlignInfo_1 = tmpNorAlignInfo_1 
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}
+		string tmpRcmAlignInfo_1;
+		for(int tmpNor2Rcm1 = 0; tmpNor2Rcm1 < finalAlignPair_Nor2Rcm1.size(); tmpNor2Rcm1++)
+		{
+			if(finalAlignPair_Nor2Rcm1.size() >= 40)
+				{break;}
+			int tmp = finalAlignPair_Nor2Rcm1[tmpNor2Rcm1].second;
+			tmpAlignInfo = rcmAlignmentInfo_PE_1[tmp];
+			tmpRcmAlignInfo_1 = tmpRcmAlignInfo_1
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";			
+		}		
+		string tmpNorAlignInfo_2;
+		for(int tmpNor2Rcm1 = 0; tmpNor2Rcm1 < finalAlignPair_Nor2Rcm1.size(); tmpNor2Rcm1++)
+		{
+			if(finalAlignPair_Nor2Rcm1.size() >= 40)
+				{break;}
+			int tmp = finalAlignPair_Nor2Rcm1[tmpNor2Rcm1].first;
+			tmpAlignInfo = norAlignmentInfo_PE_2[tmp];
+			tmpNorAlignInfo_2 = tmpNorAlignInfo_2
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}
+		string tmpRcmAlignInfo_2;
+		for(int tmpNor1Rcm2 = 0; tmpNor1Rcm2 < finalAlignPair_Nor1Rcm2.size(); tmpNor1Rcm2++)
+		{
+			if(finalAlignPair_Nor1Rcm2.size() >= 40)
+				{break;}
+			int tmp = finalAlignPair_Nor1Rcm2[tmpNor1Rcm2].second;
+			tmpAlignInfo = rcmAlignmentInfo_PE_2[tmp];
+			tmpRcmAlignInfo_2 = tmpRcmAlignInfo_2
+				+ tmpAlignInfo->alignChromName + ","
+				+ int_to_str(tmpAlignInfo->alignChromPos) + ","
+				+ tmpAlignInfo->jumpCodeVec2Str() + ","
+				+ int_to_str(tmpAlignInfo->mismatchNum) + ",\t";
+		}		
+		tmpAlignInfoStr = tmpAlignInfoStr + "\n" 
+			+ "Nor_1:\t" + tmpNorAlignInfo_1 + "\n"
+			+ "Rcm_1:\t" + tmpRcmAlignInfo_1 + "\n"
+			+ "Nor_2:\t" + tmpNorAlignInfo_2 + "\n"
+			+ "Rcm_2:\t" + tmpRcmAlignInfo_2; 
+		return tmpAlignInfoStr;
+	}
+
+
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////// Output SAM functions For Fasta Reads ///////////////////////////////
@@ -2852,7 +3487,7 @@ public:
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 
 	string getSAMformatForFinalPair(
-		const string& readName_1, const string& readName_2,
+		const string& readName_1_ori, const string& readName_2_ori,
 		const string& readSeq_1, const string& readSeq_2)//, 
 		//ofstream& outputFile) 
 		/* after pairing candidate alignments and choosing the best pairs, according to
@@ -2861,6 +3496,12 @@ public:
 		//vector< pair< int, int > > finalAlignPair_Nor1Rcm2;
 		//vector< pair< int, int > > finalAlignPair_Nor2Rcm1;
 		string tmpSamStr;
+
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
 
 		int IH_Nor1Rcm2 = finalAlignPair_Nor1Rcm2.size();
 		for(int tmp = 0; tmp < finalAlignPair_Nor1Rcm2.size(); tmp++)
@@ -2904,11 +3545,77 @@ public:
 		return returnStr;
 	}	
 
+	string getSAMformatForFinalPair_secondaryOrNot(
+		const string& readName_1_ori, const string& readName_2_ori,
+		const string& readSeq_1, const string& readSeq_2)//, 
+		//ofstream& outputFile) 
+		/* after pairing candidate alignments and choosing the best pairs, according to
+		 finalAlignPair_Nor1Rcm2 and finalAlignPair_Nor2Rcm1;*/
+	{
+		//vector< pair< int, int > > finalAlignPair_Nor1Rcm2;
+		//vector< pair< int, int > > finalAlignPair_Nor2Rcm1;
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+ 
+		string tmpSamStr;
+
+		int IH_Nor1Rcm2 = finalAlignPair_Nor1Rcm2.size();
+		for(int tmp = 0; tmp < finalAlignPair_Nor1Rcm2.size(); tmp++)
+		{
+			int HI_Nor1Rcm2_tmp = tmp + 1;
+			int tmpNor1NO = finalAlignPair_Nor1Rcm2[tmp].first;
+			int tmpRcm2NO = finalAlignPair_Nor1Rcm2[tmp].second;
+			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_1[tmpNor1NO];
+			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_2[tmpRcm2NO];
+			tmpSamStr 
+				//= tmpAlignInfo_1 -> getSamFormatString(readName_1, readSeq_1);
+				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired_secondaryOrNot(
+					readName_1, readSeq_1, tmpAlignInfo_2, true, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp, (tmp != 0));
+			//outputFile << tmpSamStr << endl; 
+			tmpSamStr += "\n";
+			tmpSamStr 
+				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired_secondaryOrNot(
+					readName_2, readSeq_2, tmpAlignInfo_1, false, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp, (tmp != 0));
+			tmpSamStr += "\n";
+		}
+		
+		int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size();
+		for(int tmp = 0; tmp < finalAlignPair_Nor2Rcm1.size(); tmp++)
+		{
+			int HI_Nor2Rcm1_tmp = tmp + 1;
+			int tmpNor2NO = finalAlignPair_Nor2Rcm1[tmp].first;
+			int tmpRcm1NO = finalAlignPair_Nor2Rcm1[tmp].second;
+			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_2[tmpNor2NO];		
+			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_1[tmpRcm1NO];
+			tmpSamStr 
+				//= tmpAlignInfo_1 -> getSamFormatString(readName_2, readSeq_2);
+				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired_secondaryOrNot(
+					readName_2, readSeq_2, tmpAlignInfo_2, false, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp, (tmp != 0));
+			tmpSamStr += "\n";
+			tmpSamStr 
+				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired_secondaryOrNot(
+					readName_1, readSeq_1, tmpAlignInfo_1, true, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp, (tmp != 0));
+			tmpSamStr += "\n";
+		}
+		string returnStr = tmpSamStr.substr(0, tmpSamStr.length()-1);
+		return returnStr;
+	}	
+
 	string getSAMformatForUnpairedAlignments(
-		const string& readName_1, const string& readName_2,
+		const string& readName_1_ori, const string& readName_2_ori,
 		const string& readSeq_1, const string& readSeq_2)
 	{
 		string peAlignSamStr;
+
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
 
 		int IH_Nor1 = norAlignmentInfo_PE_1.size();
 		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); 
@@ -2969,25 +3676,101 @@ public:
 		return peAlignSamStr.substr(0,peAlignSamStr.length()-1);
 	}
 
+	string getSAMformatForUnpairedAlignments_secondaryOrNot(
+		const string& readName_1_ori, const string& readName_2_ori,
+		const string& readSeq_1, const string& readSeq_2)
+	{
+		string peAlignSamStr;
+
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
+		int IH_Nor1 = norAlignmentInfo_PE_1.size();
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); 
+			tmp++)
+		{
+			int HI_Nor1_tmp = tmp + 1;
+			string tmpSamStr = norAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired_secondaryOrNot(
+				readName_1, readSeq_1, true, IH_Nor1, HI_Nor1_tmp, (tmp!=0));
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		int IH_Rcm1 = rcmAlignmentInfo_PE_1.size();
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); 
+			tmp++)
+		{
+			int HI_Rcm1_tmp = tmp + 1;
+			string tmpSamStr = rcmAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired_secondaryOrNot(
+				readName_1, readSeq_1, true, IH_Rcm1, HI_Rcm1_tmp, (tmp!=0));
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+
+		if((norAlignmentInfo_PE_1.size() + rcmAlignmentInfo_PE_1.size()) == 0)
+		{
+			//outputFile << readName_1 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_1 << endl;
+			peAlignSamStr = readName_1 + "\t69\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_1 + "\t*\tIH:i:0\tHI:i:0\n";
+		}
+
+		int IH_Nor2 = norAlignmentInfo_PE_2.size();			
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); 
+			tmp++)
+		{
+			int HI_Nor2_tmp = tmp + 1;
+			string tmpSamStr = norAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired_secondaryOrNot(
+				readName_2, readSeq_2, false, IH_Nor2, HI_Nor2_tmp, (tmp!=0));
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		int IH_Rcm2 = rcmAlignmentInfo_PE_2.size();
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); 
+			tmp++)
+		{
+			int HI_Rcm2_tmp = tmp + 1;
+			string tmpSamStr = rcmAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired_secondaryOrNot(
+				readName_2, readSeq_2, false, IH_Rcm2, HI_Rcm2_tmp, (tmp!=0));
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		if((norAlignmentInfo_PE_2.size() + rcmAlignmentInfo_PE_2.size()) == 0)
+		{
+			//outputFile << readName_2 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_2 << endl;
+			peAlignSamStr = peAlignSamStr + readName_2 + "\t133\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_2 + "\t*\tIH:i:0\tHI:i:0\n";
+		}
+		return peAlignSamStr.substr(0,peAlignSamStr.length()-1);
+	}
+
 	string getSAMformatForBothEndsUnmapped(
-		const string& readName_1, const string& readName_2,
+		const string& readName_1_ori, const string& readName_2_ori,
 		const string& readSeq_1, const string& readSeq_2
 		)
 	{
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
 		string peAlignSamStr;
 		peAlignSamStr = readName_1 + "\t77\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_1 + "\t*\tIH:i:0\tHI:i:0\n"
 			+ readName_2 + "\t141\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_2 + "\t*\tIH:i:0\tHI:i:0";
 		return peAlignSamStr;
 	}
 
-	///////////////////////////////////////////////////////////////////////////////////////////////////
-	///////////////////////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////// Output SAM functions For Fasta Reads ///////////////////////////////
-	///////////////////////////////////////////////////////////////////////////////////////////////////
+
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////// Output SAM functions For Fasta Reads ///////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 
