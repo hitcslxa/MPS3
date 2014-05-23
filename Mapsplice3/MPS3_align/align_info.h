@@ -119,6 +119,8 @@ public:
 	vector< pair< int, SpliceJunction_Alignment > > spliceJunctionVec; // <posInRead, SpliceJunction>
 	int mismatchNum;
 	string SJstrand;
+
+	int mappedBaseNum;
 	//int startPosInRead;
 	//int endPosInRead;
 	int endMatchedPosInChr;
@@ -554,6 +556,7 @@ public:
 				//cout << "error, unexpected jumpCodeType: " << cigarStringJumpCode[tmp].type << endl;
 			}
 		}
+		mappedBaseNum = pos;
 		return pos;
 	}
 
@@ -1069,95 +1072,6 @@ public:
 
 	}
 
-	string getSamFormatString_unpaired_secondaryOrNot(const string& readName, const string& readSeq, 
-		//Alignment_Info* mateAlignInfo, 
-		bool End1OrEnd2, int IH_num, int HI_num, bool secondaryOrNot)
-	{
-		string samString;
-
-		int FLAG;
-		string RNAME;
-		int POS;
-		///////////////////// get FLAG, RNAME and POS ///////////////////////////
-		if(alignDirection == "+")
-		{
-			RNAME = alignChromName;
-			POS = alignChromPos;
-			FLAG = getFlag_unpaired_secondaryOrNot(true, End1OrEnd2, secondaryOrNot);//0;
-		}
-		else if(alignDirection == "-")
-		{
-			RNAME = alignChromName;
-			POS = alignChromPos;			
-			FLAG = getFlag_unpaired_secondaryOrNot(false, End1OrEnd2, secondaryOrNot); //16;
-		}
-		else
-		{
-			RNAME = "*";
-			POS = 0;
-			FLAG = 4;
-		}
-		////////////////////////////////////////////////////////////////////////
-		int MAPQ = 255;
-		string CIGAR = this->jumpCodeVec2Str();
-		string RNEXT = "*"; //mateAlignInfo->alignChromName; //"*";
-		int PNEXT = 0;//mateAlignInfo->alignChromPos; // 0;
-		int TLEN = 0;
-		//string SEQ;
-		string QUAL = "*";
-		string strandStr = SJstrand;
-
-		string FLAGstr; 
-		string POSstr; 
-		string MAPQstr; 
-		string PNEXTstr; 
-		string TLENstr; 
-		string mismatchNumStr;
-		string IHstr;
-		string HIstr;
-		/*FLAGstr = int_to_str_sstream(FLAG);
-		POSstr = int_to_str_sstream(POS);
-		MAPQstr = int_to_str_sstream(MAPQ);
-		PNEXTstr = int_to_str_sstream(PNEXT);
-		TLENstr = int_to_str_sstream(TLEN);
-		mismatchNumStr = int_to_str_sstream(mismatchNum);*/
-		FLAGstr = int_to_str(FLAG);
-		POSstr = int_to_str(POS);
-		MAPQstr = int_to_str(MAPQ);
-		PNEXTstr = int_to_str(PNEXT);
-		TLENstr = int_to_str(TLEN);
-		mismatchNumStr = int_to_str(mismatchNum);
-		IHstr = int_to_str(IH_num);
-		HIstr = int_to_str(HI_num);
-
-		samString = readName + "\t" 
-			+ FLAGstr + "\t" 
-			+ RNAME + "\t"
-			+ POSstr + "\t" 
-			+ MAPQstr + "\t" 
-			+ CIGAR + "\t" 
-			+ RNEXT + "\t" 
-			+ PNEXTstr + "\t" 
-			+ TLENstr + "\t" 
-			+ readSeq + "\t" 
-			+ QUAL 
-			+ "\tNM:i:" + mismatchNumStr 
-			+ "\tIH:i:" + IHstr
-			+ "\tHI:i:" + HIstr
-			+ "\tXS:A:" + strandStr 
-			+ "\tXF:Z:"
-			;
-
-
-		for(int tmp = 0; tmp < spliceJunctionVec.size(); tmp++)
-		{
-			samString = samString + (spliceJunctionVec[tmp].second).flankString + ","; 
-		}
-
-		return samString;
-
-	}
-
 	string getSamFormatString_paired(const string& readName, const string& readSeq, 
 		Alignment_Info* mateAlignInfo, bool End1OrEnd2, int IH_num, int HI_num)
 	{
@@ -1247,27 +1161,31 @@ public:
 		return samString;
 	}
 
-	string getSamFormatString_paired_secondaryOrNot(const string& readName, const string& readSeq, 
-		Alignment_Info* mateAlignInfo, bool End1OrEnd2, int IH_num, int HI_num, bool SecondaryOrNot)
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
+
+	string getSamFormatString_unpaired_secondaryOrNot(const string& readName, const string& readSeq, 
+		//Alignment_Info* mateAlignInfo, 
+		bool End1OrEnd2, int IH_num, int HI_num, bool secondaryOrNot)
 	{
 		string samString;
 
 		int FLAG;
 		string RNAME;
 		int POS;
-
 		///////////////////// get FLAG, RNAME and POS ///////////////////////////
 		if(alignDirection == "+")
 		{
 			RNAME = alignChromName;
 			POS = alignChromPos;
-			FLAG = getFlag_paired_secondaryOrNot(true, End1OrEnd2, SecondaryOrNot);//0;
+			FLAG = getFlag_unpaired_secondaryOrNot(true, End1OrEnd2, secondaryOrNot);//0;
 		}
 		else if(alignDirection == "-")
 		{
 			RNAME = alignChromName;
 			POS = alignChromPos;			
-			FLAG = getFlag_paired_secondaryOrNot(false, End1OrEnd2, SecondaryOrNot); //16;
+			FLAG = getFlag_unpaired_secondaryOrNot(false, End1OrEnd2, secondaryOrNot); //16;
 		}
 		else
 		{
@@ -1276,11 +1194,10 @@ public:
 			FLAG = 4;
 		}
 		////////////////////////////////////////////////////////////////////////
-
 		int MAPQ = 255;
 		string CIGAR = this->jumpCodeVec2Str();
-		string RNEXT = "="; //mateAlignInfo->alignChromName; //"*";
-		int PNEXT = mateAlignInfo->alignChromPos; // 0;
+		string RNEXT = "*"; //mateAlignInfo->alignChromName; //"*";
+		int PNEXT = 0;//mateAlignInfo->alignChromPos; // 0;
 		int TLEN = 0;
 		//string SEQ;
 		string QUAL = "*";
@@ -1334,7 +1251,104 @@ public:
 		}
 
 		return samString;
+
 	}
+
+	string getSamFormatString_paired_secondaryOrNot(const string& readName, const string& readSeq, 
+		Alignment_Info* mateAlignInfo, bool End1OrEnd2, int IH_num, int HI_num, bool SecondaryOrNot, int templateLength)
+	{
+		string samString;
+
+		int FLAG;
+		string RNAME;
+		int POS;
+
+		int TLEN = 0;
+		///////////////////// get FLAG, RNAME and POS ///////////////////////////
+		if(alignDirection == "+")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;
+			FLAG = getFlag_paired_secondaryOrNot(true, End1OrEnd2, SecondaryOrNot);//0;
+			TLEN = templateLength;
+		}
+		else if(alignDirection == "-")
+		{
+			RNAME = alignChromName;
+			POS = alignChromPos;			
+			FLAG = getFlag_paired_secondaryOrNot(false, End1OrEnd2, SecondaryOrNot); //16;
+			TLEN = 0 - templateLength;
+		}
+		else
+		{
+			RNAME = "*";
+			POS = 0;
+			FLAG = 4;
+		}
+		////////////////////////////////////////////////////////////////////////
+
+		int MAPQ = 255;
+		string CIGAR = this->jumpCodeVec2Str();
+		string RNEXT = "="; //mateAlignInfo->alignChromName; //"*";
+		int PNEXT = mateAlignInfo->alignChromPos; // 0;
+		//int TLEN = 0;
+		//string SEQ;
+		string QUAL = "*";
+		string strandStr = SJstrand;
+
+		string FLAGstr; 
+		string POSstr; 
+		string MAPQstr; 
+		string PNEXTstr; 
+		string TLENstr; 
+		string mismatchNumStr;
+		string IHstr;
+		string HIstr;
+		/*FLAGstr = int_to_str_sstream(FLAG);
+		POSstr = int_to_str_sstream(POS);
+		MAPQstr = int_to_str_sstream(MAPQ);
+		PNEXTstr = int_to_str_sstream(PNEXT);
+		TLENstr = int_to_str_sstream(TLEN);
+		mismatchNumStr = int_to_str_sstream(mismatchNum);*/
+		FLAGstr = int_to_str(FLAG);
+		POSstr = int_to_str(POS);
+		MAPQstr = int_to_str(MAPQ);
+		PNEXTstr = int_to_str(PNEXT);
+		TLENstr = int_to_str(TLEN);
+		mismatchNumStr = int_to_str(mismatchNum);
+		IHstr = int_to_str(IH_num);
+		HIstr = int_to_str(HI_num);
+
+		samString = readName + "\t" 
+			+ FLAGstr + "\t" 
+			+ RNAME + "\t"
+			+ POSstr + "\t" 
+			+ MAPQstr + "\t" 
+			+ CIGAR + "\t" 
+			+ RNEXT + "\t" 
+			+ PNEXTstr + "\t" 
+			+ TLENstr + "\t" 
+			+ readSeq + "\t" 
+			+ QUAL 
+			+ "\tNM:i:" + mismatchNumStr 
+			+ "\tIH:i:" + IHstr
+			+ "\tHI:i:" + HIstr
+			+ "\tXS:A:" + strandStr 
+			+ "\tXF:Z:"
+			;
+
+
+		for(int tmp = 0; tmp < spliceJunctionVec.size(); tmp++)
+		{
+			samString = samString + (spliceJunctionVec[tmp].second).flankString + ","; 
+		}
+
+		return samString;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
 
 	bool checkOverlapPairAlignment(Alignment_Info* secondAlignmentInfo) // parameter is another alignment 
 	{
@@ -1494,6 +1508,167 @@ public:
 
 	vector<bool> otherEndUnmappedBoolVec;
 
+
+	bool betterNewOtherEndAlignInfoBool(
+		//int oriAlignInfo_mappedLength, int newAlignInfo_mappedLength,
+		//int oriAlignInfo_mismatchNum, int newAlignInfo_mismatchNum
+		//Alignment_Info* fixedEndAlignInfo, 
+		Alignment_Info* otherEndAlignInfo_ori, Alignment_Info* otherEndAlignInfo_new)
+	{
+		int mappedLength_ori = otherEndAlignInfo_ori->mappedLength();
+		int mappedLength_new = otherEndAlignInfo_new->mappedLength();
+
+		int mismatchNum_ori = otherEndAlignInfo_ori->mismatchNum;
+		int mismatchNum_new = otherEndAlignInfo_new->mismatchNum;
+
+		int endMappedPos_ori = otherEndAlignInfo_ori->endMatchedPosInChr;
+		int endmappedPos_new = otherEndAlignInfo_new->endMatchedPosInChr;
+
+		if((mappedLength_ori - mismatchNum_ori) - (mappedLength_new - mismatchNum_new) < 0)
+		{
+			return true;
+		}
+		else if((mappedLength_ori - mismatchNum_ori) - (mappedLength_new - mismatchNum_new) > 0)
+		{
+			return false;
+		}
+		else // ((mappedLength_ori - mismatchNum_ori) - (mappedLength_new - mismatchNum_new) == 0)
+		{
+			if(endMappedPos_ori < endmappedPos_new)
+			{
+				return false;
+			}
+			else
+			{
+				return true;
+			}
+		}
+	}
+
+	int filterOriPair(bool oriPairNor1Rcm2OrNot, int oriPairVecNO)
+	{
+		int selectedAlignInfoNO = 0;
+
+		if(oriPairNor1Rcm2OrNot)
+		{
+			int alignInfo_Nor1_NO = oriAlignPair_Nor1Rcm2[oriPairVecNO].first;
+			selectedAlignInfoNO = (oriAlignPair_Nor1Rcm2[oriPairVecNO].second)[0];
+
+			for(int tmp = 1; tmp < (oriAlignPair_Nor1Rcm2[oriPairVecNO].second).size(); tmp++)
+			{
+				int alignInfo_Rcm2_NO = (oriAlignPair_Nor1Rcm2[oriPairVecNO].second)[tmp];
+				if( this->betterNewOtherEndAlignInfoBool(
+					//norAlignmentInfo_PE_1[alignInfo_Nor1_NO], 
+					rcmAlignmentInfo_PE_2[selectedAlignInfoNO], rcmAlignmentInfo_PE_2[alignInfo_Rcm2_NO] ) )
+				{
+					selectedAlignInfoNO = alignInfo_Rcm2_NO;
+				}
+			}
+		}
+		else
+		{
+			int alignInfo_Nor2_NO = oriAlignPair_Nor2Rcm1[oriPairVecNO].first;
+			selectedAlignInfoNO = (oriAlignPair_Nor2Rcm1[oriPairVecNO].second)[0];
+
+			for(int tmp = 1; tmp < (oriAlignPair_Nor2Rcm1[oriPairVecNO].second).size(); tmp++)
+			{
+				int alignInfo_Rcm1_NO = (oriAlignPair_Nor2Rcm1[oriPairVecNO].second)[tmp];
+				if( this->betterNewOtherEndAlignInfoBool(
+					//norAlignmentInfo_PE_2[alignInfo_Nor2_NO],
+					rcmAlignmentInfo_PE_1[selectedAlignInfoNO], rcmAlignmentInfo_PE_1[alignInfo_Rcm1_NO]) )
+				{
+					selectedAlignInfoNO = alignInfo_Rcm1_NO;
+				}
+			}
+		}
+		
+		return selectedAlignInfoNO;
+	}
+
+	void filterOriPairVec()
+	{
+		for(int tmp = 0; tmp < oriAlignPair_Nor1Rcm2.size(); tmp++)
+		{
+			int selectedAlignInfo_Rcm2_NO = this->filterOriPair(true, tmp);
+			oriAlignPair_Nor1Rcm2_filtered.push_back(pair<int, int>(tmp, selectedAlignInfo_Rcm2_NO));
+		}
+
+		for(int tmp = 0; tmp < oriAlignPair_Nor2Rcm1.size(); tmp++)
+		{
+			int selectedAlignInfo_Rcm1_NO = this->filterOriPair(false, tmp);
+			oriAlignPair_Nor2Rcm1_filtered.push_back(pair<int, int>(tmp, selectedAlignInfo_Rcm1_NO));
+		}
+	}
+
+	bool betterNewPairAlignmentsBool(
+		Alignment_Info* alignInfo_nor_ori, Alignment_Info* alignInfo_rcm_ori,
+		Alignment_Info* alignInfo_nor_new, Alignment_Info* alignInfo_rcm_new)
+	{
+		int mappedLength_oriPair = alignInfo_nor_ori->mappedBaseNum + alignInfo_rcm_ori->mappedBaseNum;
+		int mappedLength_newPair = alignInfo_nor_new->mappedBaseNum + alignInfo_rcm_new->mappedBaseNum;
+
+		int mismatchNum_oriPair = alignInfo_nor_ori->mismatchNum + alignInfo_rcm_ori->mismatchNum;
+		int mismatchNum_newPair = alignInfo_nor_new->mismatchNum + alignInfo_rcm_new->mismatchNum;
+		
+		if((mappedLength_oriPair - mismatchNum_oriPair) - (mappedLength_newPair - mismatchNum_newPair) <= 0)
+		{
+			return true;
+		}
+		else //if((mappedLength_ori - mismatchNum_ori) - (mappedLength_new - mismatchNum_new) > 0)
+		{
+			return false;
+		}
+		/*
+		int startMapPos_oriPair;
+		int startMapPos_oriPair_nor = alignInfo_nor_ori->alignChormPos;
+		int startMapPos_oriPair_rcm = alignInfo_rcm_ori->alignChromPos;
+		if(startMapPos_oriPair_nor < startMapPos_oriPair_rcm)
+			startMapPos_oriPair = startMapPos_oriPair_nor;
+		else
+			startMapPos_oriPair = startMapPos_oriPair_rcm;
+
+		int endMappedPos_oriPair;
+		int endMappedPos_oriPair_nor = alignInfo_nor_ori->endMatchedPosInChr;
+		int endMappedPos_oriPair_rcm = alignInfo_rcm_ori->endMatchedPosInChr;
+		if(endMappedPos_oriPair_nor < endMappedPos_oriPair_rcm)
+			endMappedPos_oriPair = endMappedPos_oriPair_rcm;
+		else
+			endMappedPos_oriPair = endMappedPos_oriPair_nor;
+
+		int startMapPos_newPair;
+		int startMapPos_newPair_nor = alignInfo_nor_new->alignChormPos;
+		int startMapPos_newPair_rcm = alignInfo_rcm_new->alignChromPos;
+		if(startMapPos_newPair_nor < startMapPos_newPair_rcm)
+			startMapPos_newPair = startMapPos_newPair_nor;
+		else
+			startMapPos_newPair = startMapPos_newPair_rcm;
+
+		int endMappedPos_newPair;
+		int endMappedPos_newPair_nor = alignInfo_nor_new->endMatchedPosInChr;
+		int endMappedPos_newPair_rcm = alignInfo_rcm_new->endMatchedPosInChr;
+		if(endMappedPos_newPair_nor < endMappedPos_newPair_rcm)
+			endMappedPos_newPair = endMappedPos_newPair_rcm;
+		else
+			endMappedPos_newPair = endMappedPos_newPair_nor;*/
+	}
+
+	void oriPairFiltered2NonOverlapPair()
+	{
+
+	}
+
+	void oriPairNonOverlap2FinalPair()
+	{
+		for(int tmp = 0; tmp < oriAlignPair_Nor1Rcm2_filtered.size(); tmp ++)
+		{
+
+		}
+
+		for(int tmp = 0; tmp < oriAlignPair_Nor2Rcm1_filtered.size(); tmp ++)
+		{
+
+		}	
+	}
 
 	void generatePeReadInfoAndPeAlignInfo_Fasta_toFixOneEndUnmapped_fgets(const string& line1, const string& line2, 
 		//const string& recordLine3, 
@@ -2858,20 +3033,6 @@ public:
 		///////////////// 3. reads can be mapped to different places in one direction //////////////////
 	}
 
-	/*void filterOriPair()
-	{
-		for()
-		{
-
-		}
-
-		// filter oriAlignPair_Nor2
-		for()
-		{
-
-		}
-	}*/
-
 	void chooseBestAlignment()
 	{
 		map < int, int > mapPos_Nor1Rcm2; // <alignChormPos of Nor1[#], # in oriAlignPair_Nor1Rcm2  >
@@ -3059,6 +3220,137 @@ public:
 			else
 			{}
 		}		
+	}*/
+
+	/*string getSAMformatForFinalPair(
+		const string& readName_1_ori, const string& readName_2_ori,
+		const string& readSeq_1, const string& readSeq_2)//, 
+		//ofstream& outputFile) 
+		// after pairing candidate alignments and choosing the best pairs, according to
+		// finalAlignPair_Nor1Rcm2 and finalAlignPair_Nor2Rcm1;
+	{
+		//vector< pair< int, int > > finalAlignPair_Nor1Rcm2;
+		//vector< pair< int, int > > finalAlignPair_Nor2Rcm1;
+		string tmpSamStr;
+
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
+		int IH_Nor1Rcm2 = finalAlignPair_Nor1Rcm2.size();
+		for(int tmp = 0; tmp < finalAlignPair_Nor1Rcm2.size(); tmp++)
+		{
+			int HI_Nor1Rcm2_tmp = tmp + 1;
+			int tmpNor1NO = finalAlignPair_Nor1Rcm2[tmp].first;
+			int tmpRcm2NO = finalAlignPair_Nor1Rcm2[tmp].second;
+			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_1[tmpNor1NO];
+			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_2[tmpRcm2NO];
+			tmpSamStr 
+				//= tmpAlignInfo_1 -> getSamFormatString(readName_1, readSeq_1);
+				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired(
+					readName_1, readSeq_1, tmpAlignInfo_2, true, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp);
+			//outputFile << tmpSamStr << endl; 
+			tmpSamStr += "\n";
+			tmpSamStr 
+				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired(
+					readName_2, readSeq_2, tmpAlignInfo_1, false, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp);
+			tmpSamStr += "\n";
+		}
+		
+		int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size();
+		for(int tmp = 0; tmp < finalAlignPair_Nor2Rcm1.size(); tmp++)
+		{
+			int HI_Nor2Rcm1_tmp = tmp + 1;
+			int tmpNor2NO = finalAlignPair_Nor2Rcm1[tmp].first;
+			int tmpRcm1NO = finalAlignPair_Nor2Rcm1[tmp].second;
+			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_2[tmpNor2NO];		
+			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_1[tmpRcm1NO];
+			tmpSamStr 
+				//= tmpAlignInfo_1 -> getSamFormatString(readName_2, readSeq_2);
+				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired(
+					readName_2, readSeq_2, tmpAlignInfo_2, false, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp);
+			tmpSamStr += "\n";
+			tmpSamStr 
+				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired(
+					readName_1, readSeq_1, tmpAlignInfo_1, true, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp);
+			tmpSamStr += "\n";
+		}
+		string returnStr = tmpSamStr.substr(0, tmpSamStr.length()-1);
+		return returnStr;
+	}*/	
+
+	/*string getSAMformatForUnpairedAlignments(
+		const string& readName_1_ori, const string& readName_2_ori,
+		const string& readSeq_1, const string& readSeq_2)
+	{
+		string peAlignSamStr;
+
+		int readNameSize_1 = readName_1_ori.length();
+		int readNameSize_2 = readName_2_ori.length();
+
+		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
+		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
+
+
+		int IH_Nor1 = norAlignmentInfo_PE_1.size();
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); 
+			tmp++)
+		{
+			int HI_Nor1_tmp = tmp + 1;
+			string tmpSamStr = norAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired(
+				readName_1, readSeq_1, true, IH_Nor1, HI_Nor1_tmp);
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		int IH_Rcm1 = rcmAlignmentInfo_PE_1.size();
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); 
+			tmp++)
+		{
+			int HI_Rcm1_tmp = tmp + 1;
+			string tmpSamStr = rcmAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired(
+				readName_1, readSeq_1, true, IH_Rcm1, HI_Rcm1_tmp);
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+
+		if((norAlignmentInfo_PE_1.size() + rcmAlignmentInfo_PE_1.size()) == 0)
+		{
+			//outputFile << readName_1 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_1 << endl;
+			peAlignSamStr = readName_1 + "\t69\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_1 + "\t*\tIH:i:0\tHI:i:0\n";
+		}
+
+		int IH_Nor2 = norAlignmentInfo_PE_2.size();			
+		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); 
+			tmp++)
+		{
+			int HI_Nor2_tmp = tmp + 1;
+			string tmpSamStr = norAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired(
+				readName_2, readSeq_2, false, IH_Nor2, HI_Nor2_tmp);
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		int IH_Rcm2 = rcmAlignmentInfo_PE_2.size();
+		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); 
+			tmp++)
+		{
+			int HI_Rcm2_tmp = tmp + 1;
+			string tmpSamStr = rcmAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired(
+				readName_2, readSeq_2, false, IH_Rcm2, HI_Rcm2_tmp);
+			//outputFile << tmpSamStr << endl;
+			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
+		}
+
+		if((norAlignmentInfo_PE_2.size() + rcmAlignmentInfo_PE_2.size()) == 0)
+		{
+			//outputFile << readName_2 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_2 << endl;
+			peAlignSamStr = peAlignSamStr + readName_2 + "\t133\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_2 + "\t*\tIH:i:0\tHI:i:0\n";
+		}
+		return peAlignSamStr.substr(0,peAlignSamStr.length()-1);
 	}*/
 
 	string getTmpPairedAlignInfoStr(const string& readName_1, 
@@ -3486,65 +3778,6 @@ public:
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 
-	string getSAMformatForFinalPair(
-		const string& readName_1_ori, const string& readName_2_ori,
-		const string& readSeq_1, const string& readSeq_2)//, 
-		//ofstream& outputFile) 
-		/* after pairing candidate alignments and choosing the best pairs, according to
-		 finalAlignPair_Nor1Rcm2 and finalAlignPair_Nor2Rcm1;*/
-	{
-		//vector< pair< int, int > > finalAlignPair_Nor1Rcm2;
-		//vector< pair< int, int > > finalAlignPair_Nor2Rcm1;
-		string tmpSamStr;
-
-		int readNameSize_1 = readName_1_ori.length();
-		int readNameSize_2 = readName_2_ori.length();
-
-		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
-		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
-
-		int IH_Nor1Rcm2 = finalAlignPair_Nor1Rcm2.size();
-		for(int tmp = 0; tmp < finalAlignPair_Nor1Rcm2.size(); tmp++)
-		{
-			int HI_Nor1Rcm2_tmp = tmp + 1;
-			int tmpNor1NO = finalAlignPair_Nor1Rcm2[tmp].first;
-			int tmpRcm2NO = finalAlignPair_Nor1Rcm2[tmp].second;
-			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_1[tmpNor1NO];
-			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_2[tmpRcm2NO];
-			tmpSamStr 
-				//= tmpAlignInfo_1 -> getSamFormatString(readName_1, readSeq_1);
-				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired(
-					readName_1, readSeq_1, tmpAlignInfo_2, true, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp);
-			//outputFile << tmpSamStr << endl; 
-			tmpSamStr += "\n";
-			tmpSamStr 
-				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired(
-					readName_2, readSeq_2, tmpAlignInfo_1, false, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp);
-			tmpSamStr += "\n";
-		}
-		
-		int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size();
-		for(int tmp = 0; tmp < finalAlignPair_Nor2Rcm1.size(); tmp++)
-		{
-			int HI_Nor2Rcm1_tmp = tmp + 1;
-			int tmpNor2NO = finalAlignPair_Nor2Rcm1[tmp].first;
-			int tmpRcm1NO = finalAlignPair_Nor2Rcm1[tmp].second;
-			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_2[tmpNor2NO];		
-			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_1[tmpRcm1NO];
-			tmpSamStr 
-				//= tmpAlignInfo_1 -> getSamFormatString(readName_2, readSeq_2);
-				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired(
-					readName_2, readSeq_2, tmpAlignInfo_2, false, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp);
-			tmpSamStr += "\n";
-			tmpSamStr 
-				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired(
-					readName_1, readSeq_1, tmpAlignInfo_1, true, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp);
-			tmpSamStr += "\n";
-		}
-		string returnStr = tmpSamStr.substr(0, tmpSamStr.length()-1);
-		return returnStr;
-	}	
-
 	string getSAMformatForFinalPair_secondaryOrNot(
 		const string& readName_1_ori, const string& readName_2_ori,
 		const string& readSeq_1, const string& readSeq_2)//, 
@@ -3563,6 +3796,10 @@ public:
 		string tmpSamStr;
 
 		int IH_Nor1Rcm2 = finalAlignPair_Nor1Rcm2.size();
+		int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size();
+
+		int IH_allPair = IH_Nor1Rcm2 + IH_Nor2Rcm1;
+
 		for(int tmp = 0; tmp < finalAlignPair_Nor1Rcm2.size(); tmp++)
 		{
 			int HI_Nor1Rcm2_tmp = tmp + 1;
@@ -3570,111 +3807,55 @@ public:
 			int tmpRcm2NO = finalAlignPair_Nor1Rcm2[tmp].second;
 			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_1[tmpNor1NO];
 			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_2[tmpRcm2NO];
+
+			int template_start = tmpAlignInfo_1->alignChromPos;
+			int template_end = tmpAlignInfo_2->endMatchedPosInChr;
+
+			int template_length = template_end - template_start + 1;
+
 			tmpSamStr 
 				//= tmpAlignInfo_1 -> getSamFormatString(readName_1, readSeq_1);
 				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired_secondaryOrNot(
-					readName_1, readSeq_1, tmpAlignInfo_2, true, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp, (tmp != 0));
+					readName_1, readSeq_1, tmpAlignInfo_2, true, IH_allPair, HI_Nor1Rcm2_tmp, (tmp != 0), template_length);
 			//outputFile << tmpSamStr << endl; 
 			tmpSamStr += "\n";
 			tmpSamStr 
 				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired_secondaryOrNot(
-					readName_2, readSeq_2, tmpAlignInfo_1, false, IH_Nor1Rcm2, HI_Nor1Rcm2_tmp, (tmp != 0));
+					readName_2, readSeq_2, tmpAlignInfo_1, false, IH_allPair, HI_Nor1Rcm2_tmp, (tmp != 0), template_length);
 			tmpSamStr += "\n";
 		}
 		
-		int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size();
+		//int IH_Nor2Rcm1 = finalAlignPair_Nor2Rcm1.size()
+		//	+ IH_Nor1Rcm2;
 		for(int tmp = 0; tmp < finalAlignPair_Nor2Rcm1.size(); tmp++)
 		{
-			int HI_Nor2Rcm1_tmp = tmp + 1;
+			int HI_Nor2Rcm1_tmp = tmp + 1
+				+ IH_Nor1Rcm2;
+
 			int tmpNor2NO = finalAlignPair_Nor2Rcm1[tmp].first;
 			int tmpRcm1NO = finalAlignPair_Nor2Rcm1[tmp].second;
 			Alignment_Info* tmpAlignInfo_1 = norAlignmentInfo_PE_2[tmpNor2NO];		
 			Alignment_Info* tmpAlignInfo_2 = rcmAlignmentInfo_PE_1[tmpRcm1NO];
+			
+			int template_start = tmpAlignInfo_1->alignChromPos;
+			int template_end = tmpAlignInfo_2->endMatchedPosInChr;
+
+			int template_length = template_end - template_start + 1;		
+
 			tmpSamStr 
 				//= tmpAlignInfo_1 -> getSamFormatString(readName_2, readSeq_2);
 				= tmpSamStr + tmpAlignInfo_1->getSamFormatString_paired_secondaryOrNot(
-					readName_2, readSeq_2, tmpAlignInfo_2, false, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp, (tmp != 0));
+					readName_2, readSeq_2, tmpAlignInfo_2, false, IH_allPair, HI_Nor2Rcm1_tmp, ((tmp != 0)||(IH_Nor1Rcm2 > 0)), template_length);
 			tmpSamStr += "\n";
 			tmpSamStr 
 				= tmpSamStr + tmpAlignInfo_2->getSamFormatString_paired_secondaryOrNot(
-					readName_1, readSeq_1, tmpAlignInfo_1, true, IH_Nor2Rcm1, HI_Nor2Rcm1_tmp, (tmp != 0));
+					readName_1, readSeq_1, tmpAlignInfo_1, true, IH_allPair, HI_Nor2Rcm1_tmp, ((tmp != 0)||(IH_Nor1Rcm2 > 0)), template_length);
 			tmpSamStr += "\n";
 		}
 		string returnStr = tmpSamStr.substr(0, tmpSamStr.length()-1);
 		return returnStr;
 	}	
 
-	string getSAMformatForUnpairedAlignments(
-		const string& readName_1_ori, const string& readName_2_ori,
-		const string& readSeq_1, const string& readSeq_2)
-	{
-		string peAlignSamStr;
-
-		int readNameSize_1 = readName_1_ori.length();
-		int readNameSize_2 = readName_2_ori.length();
-
-		string readName_1 = readName_1_ori.substr(0, readNameSize_1 - 2);
-		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
-
-
-		int IH_Nor1 = norAlignmentInfo_PE_1.size();
-		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); 
-			tmp++)
-		{
-			int HI_Nor1_tmp = tmp + 1;
-			string tmpSamStr = norAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired(
-				readName_1, readSeq_1, true, IH_Nor1, HI_Nor1_tmp);
-			//outputFile << tmpSamStr << endl;
-			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
-		}
-
-		int IH_Rcm1 = rcmAlignmentInfo_PE_1.size();
-		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); 
-			tmp++)
-		{
-			int HI_Rcm1_tmp = tmp + 1;
-			string tmpSamStr = rcmAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired(
-				readName_1, readSeq_1, true, IH_Rcm1, HI_Rcm1_tmp);
-			//outputFile << tmpSamStr << endl;
-			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
-		}
-
-
-		if((norAlignmentInfo_PE_1.size() + rcmAlignmentInfo_PE_1.size()) == 0)
-		{
-			//outputFile << readName_1 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_1 << endl;
-			peAlignSamStr = readName_1 + "\t69\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_1 + "\t*\tIH:i:0\tHI:i:0\n";
-		}
-
-		int IH_Nor2 = norAlignmentInfo_PE_2.size();			
-		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); 
-			tmp++)
-		{
-			int HI_Nor2_tmp = tmp + 1;
-			string tmpSamStr = norAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired(
-				readName_2, readSeq_2, false, IH_Nor2, HI_Nor2_tmp);
-			//outputFile << tmpSamStr << endl;
-			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
-		}
-
-		int IH_Rcm2 = rcmAlignmentInfo_PE_2.size();
-		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); 
-			tmp++)
-		{
-			int HI_Rcm2_tmp = tmp + 1;
-			string tmpSamStr = rcmAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired(
-				readName_2, readSeq_2, false, IH_Rcm2, HI_Rcm2_tmp);
-			//outputFile << tmpSamStr << endl;
-			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
-		}
-
-		if((norAlignmentInfo_PE_2.size() + rcmAlignmentInfo_PE_2.size()) == 0)
-		{
-			//outputFile << readName_2 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_2 << endl;
-			peAlignSamStr = peAlignSamStr + readName_2 + "\t133\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_2 + "\t*\tIH:i:0\tHI:i:0\n";
-		}
-		return peAlignSamStr.substr(0,peAlignSamStr.length()-1);
-	}
 
 	string getSAMformatForUnpairedAlignments_secondaryOrNot(
 		const string& readName_1_ori, const string& readName_2_ori,
@@ -3689,52 +3870,58 @@ public:
 		string readName_2 = readName_2_ori.substr(0, readNameSize_2 - 2);
 
 		int IH_Nor1 = norAlignmentInfo_PE_1.size();
+		int IH_Rcm1 = rcmAlignmentInfo_PE_1.size();	
+
+		int IH_1 = norAlignmentInfo_PE_1.size() + rcmAlignmentInfo_PE_1.size();	
+
 		for(int tmp = 0; tmp < norAlignmentInfo_PE_1.size(); 
 			tmp++)
 		{
 			int HI_Nor1_tmp = tmp + 1;
 			string tmpSamStr = norAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired_secondaryOrNot(
-				readName_1, readSeq_1, true, IH_Nor1, HI_Nor1_tmp, (tmp!=0));
+				readName_1, readSeq_1, true, IH_1, HI_Nor1_tmp, (tmp!=0));
 			//outputFile << tmpSamStr << endl;
 			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
 		}
 
-		int IH_Rcm1 = rcmAlignmentInfo_PE_1.size();
 		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_1.size(); 
 			tmp++)
 		{
-			int HI_Rcm1_tmp = tmp + 1;
+			int HI_Rcm1_tmp = tmp + 1 + IH_Nor1;
 			string tmpSamStr = rcmAlignmentInfo_PE_1[tmp]->getSamFormatString_unpaired_secondaryOrNot(
-				readName_1, readSeq_1, true, IH_Rcm1, HI_Rcm1_tmp, (tmp!=0));
+				readName_1, readSeq_1, true, IH_1, HI_Rcm1_tmp, ((tmp!=0)||(IH_Nor1 > 0)) );
 			//outputFile << tmpSamStr << endl;
 			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
 		}
-
-
+		
 		if((norAlignmentInfo_PE_1.size() + rcmAlignmentInfo_PE_1.size()) == 0)
 		{
 			//outputFile << readName_1 << "\t4\t*\t0\t255\t*\t*\t0\t0\t" << readSeq_1 << endl;
 			peAlignSamStr = readName_1 + "\t69\t*\t0\t0\t*\t*\t0\t0\t" + readSeq_1 + "\t*\tIH:i:0\tHI:i:0\n";
 		}
 
-		int IH_Nor2 = norAlignmentInfo_PE_2.size();			
+		int IH_Nor2 = norAlignmentInfo_PE_2.size();	
+		int IH_Rcm2 = rcmAlignmentInfo_PE_2.size();
+
+		int IH_2 = IH_Nor2 + IH_Rcm2;
+
 		for(int tmp = 0; tmp < norAlignmentInfo_PE_2.size(); 
 			tmp++)
 		{
 			int HI_Nor2_tmp = tmp + 1;
 			string tmpSamStr = norAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired_secondaryOrNot(
-				readName_2, readSeq_2, false, IH_Nor2, HI_Nor2_tmp, (tmp!=0));
+				readName_2, readSeq_2, false, IH_2, HI_Nor2_tmp, (tmp!=0));
 			//outputFile << tmpSamStr << endl;
 			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
 		}
 
-		int IH_Rcm2 = rcmAlignmentInfo_PE_2.size();
+
 		for(int tmp = 0; tmp < rcmAlignmentInfo_PE_2.size(); 
 			tmp++)
 		{
-			int HI_Rcm2_tmp = tmp + 1;
+			int HI_Rcm2_tmp = tmp + 1 + IH_Nor2;
 			string tmpSamStr = rcmAlignmentInfo_PE_2[tmp]->getSamFormatString_unpaired_secondaryOrNot(
-				readName_2, readSeq_2, false, IH_Rcm2, HI_Rcm2_tmp, (tmp!=0));
+				readName_2, readSeq_2, false, IH_2, HI_Rcm2_tmp, ((tmp!=0)||(IH_Nor2>0)) );
 			//outputFile << tmpSamStr << endl;
 			peAlignSamStr = peAlignSamStr + tmpSamStr + "\n";
 		}
