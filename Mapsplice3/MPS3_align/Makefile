@@ -1,6 +1,6 @@
-all: alignAll alignHeadTail alignMid alignOneEndUnmapped compareJunction
+all: alignAll 
 
-OPTFLAGS = -O3
+OPTFLAGS = -O0 -g -rdynamic -std=c++0x
 OUTPUTDIR = bin/
 
 CFLAGS += $(OPTFLAGS) -fopenmp
@@ -21,7 +21,7 @@ compareJunction: directories
 	g++  $(CFLAGS) -o $(OUTPUTDIR)compareJunction compareJunction.cpp
 	
 clean:
-	rm $(OUTPUTDIR)*
+	rm $(OUTPUTDIR)alignAll
 
 directories:
 	mkdir -p $(OUTPUTDIR)

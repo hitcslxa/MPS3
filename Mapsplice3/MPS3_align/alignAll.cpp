@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include <malloc.h>
-#include <string.h>
+#include <algorithm>
+#include <string>
 #include <iostream>
 #include <fstream>
 #include <stack>
@@ -13,38 +14,19 @@
 #include <omp.h>
 #include <time.h>
 
-//#include "switch.h"
-#include "read_block_test.h"
-#include "bwtmap_info.h"
-#include "DoubleAnchorScore.h"
-#include "sbndm.h"
-#include "otherFunc.h"
-#include "index_info.h"
-#include "constantDefinitions.h"
-#include "segmentMapping.h"
-//#include "segmentMapping_secondLevel.h"
-#include "splice_info.h"
-#include "fixGapRelationParameters.h"
-#include "read_info.h"
-#include "seg_info.h"
-#include "gap_info.h"
-#include "align_info.h"
-#include "spliceJunction_info.h"
-#include "unmapEnd_info.h"
-#include "unfixedHead.h"
-#include "unfixedTail.h"
+#include "spliceJunctionHash.h"
 #include "sam2junc.h"
-#include "fixHeadTail.h"
-#include "fixOneEndUnmapped.h"
 #include "fixPhase1.h"
-#include "readSeqPreProcessing.h"
-#include "headerSection_info.h"
+#include "pairedEndRead.h"
+#include "chromosome.h"
+#include "align_info.h"
 
 #define PreIndexSize 268435456
 
-using namespace std;  
+using namespace std;
 
-clock_t read_file_begin, read_file_end, read_file_end2, read_file_end3, 
+#ifdef CAL_TIME
+clock_t read_file_begin, read_file_end, read_file_end2, read_file_end3,
 		align_begin, align_end, align_cost = 0,
     	overall_begin, overall_end, overall_cost = 0,
     	input_begin, input_end, input_cost = 0,
@@ -57,22 +39,22 @@ clock_t read_file_begin, read_file_end, read_file_end2, read_file_end3,
 		insertSamFormat_begin, insertSamFormat_end, insertSamFormat_cost = 0,
 		getReadInfo_begin, getReadInfo_end, getReadInfo_cost = 0,
 		freeMem_begin, freeMem_end, freeMem_cost = 0,
-
 		generateReadAlignInfo_begin, generateReadAlignInfo_end, generateReadAlignInfo_cost = 0;
+#endif
 
 unsigned int PairedReadNum = 0, BothUnmappedReadNum = 0, UnpairedReadNum = 0;
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+void fixHeadTail_areaAndStringHash(PairedEndRead* peReadInfo, PE_Read_Alignment_Info* peAlignInfo,
+	SpliceJunctionHash* SJ, SecondLevelChromosomeList* secondLevelChromosomeList, bool spliceJunctionHashExists);
+
+void fixOneEndUnmapped(PairedEndRead* peReadInfo, PE_Read_Alignment_Info* peAlignInfo,
+		SecondLevelChromosomeList* secondLevelChromosomeList);
 
 int main(int argc, char**argv)
 {
-    if(argc < 9)
+    if(argc != 9)
 	{
-		//cout << "Executable <InputReads> <InputReads_PE> <OutputSAM> <threads_num> <Fasta_or_Fastq> <HumanOrMouse>" << endl;
 		cout << "Executable <InputReads> <InputReads_PE> <OutputDir> <threads_num> <Fasta_or_Fastq> <wholeGenomeIndexPrefix> <localIndexPrefix> <chromsomeDir>" << endl;
-
 		exit(0);
 	}
 
@@ -92,61 +74,38 @@ int main(int argc, char**argv)
 	///////////////////////   switches of seperate processes    ///////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////
 
-	bool Do_Phase1_Only = false;
-	//Do_Phase1_Only = true;
-
+	bool Do_Phase1_Only = true;
 	bool outputAlignInfoAndSamForAllPairedAlignmentBool = false;
-	outputAlignInfoAndSamForAllPairedAlignmentBool = true;
-
-	bool removeAllIntermediateFilesBool = false;
-	//removeAllIntermediateFilesBool = true;
-
-	bool DoSam2JuncBool = false;
-	DoSam2JuncBool = true;
-
-	bool load2ndLevelIndexBool = false;
-	load2ndLevelIndexBool = true;
-
-	bool load2ndLevelIndexBool_compressedSize = false;
-	load2ndLevelIndexBool_compressedSize = true;
-
-	bool DoRemappingOnUnmapEndReadsBool = false;
-	DoRemappingOnUnmapEndReadsBool = true;
-
-	bool DoRemappingOnUnfixedHeadTailAlignmentBool = false;
-	DoRemappingOnUnfixedHeadTailAlignmentBool = true;
-
-
+	bool removeAllIntermediateFilesBool = true;
+	bool DoSam2JuncBool = true;
+	bool load2ndLevelIndexBool = true;
+	bool DoRemappingOnUnmapEndReadsBool = true;
+	bool DoRemappingOnUnfixedHeadTailAlignmentBool = true;
 
 	if(Do_Phase1_Only)
 	{
 		log_ofs << "Do_Phase1 only!" << endl;
 		DoSam2JuncBool = false;
 		load2ndLevelIndexBool = false;
-		load2ndLevelIndexBool_compressedSize = false;
 		DoRemappingOnUnmapEndReadsBool = false;
 		DoRemappingOnUnfixedHeadTailAlignmentBool = false;
 	}	
 	else
 	{
 		log_ofs << "Do_Phase1_Phase2! " << endl;
-		DoSam2JuncBool = true;//false;
-		load2ndLevelIndexBool = true;//false;
-		load2ndLevelIndexBool_compressedSize = true;//false;
-		DoRemappingOnUnmapEndReadsBool = true;//false;
-		DoRemappingOnUnfixedHeadTailAlignmentBool = true;//false;
+		DoSam2JuncBool = true;
+		load2ndLevelIndexBool = true;
+		DoRemappingOnUnmapEndReadsBool = true;
+		DoRemappingOnUnfixedHeadTailAlignmentBool = true;
 	}
 
-	int normalRecordNum_1stMapping = 1000000;
+	int firstMappingRecordNumber = 1000000;
 	int normalRecordNum_fixOneEndUnmapped = 1000000;
-	int normalRecordNum_fixHeadTail = 1000000;//000000;
+	int normalRecordNum_fixHeadTail = 1000000;
 
-	int readTotalNum = 0;
-
-	log_ofs << "normalRecordNum_1stMapping: " << normalRecordNum_1stMapping << endl;
+	log_ofs << "firstMappingRecordNumber: " << firstMappingRecordNumber << endl;
 	log_ofs << "normalRecordNum_fixOneEndUnmapped: " << normalRecordNum_fixOneEndUnmapped << endl;
 	log_ofs << "normalRecordNum_fixHeadTail: " << normalRecordNum_fixHeadTail << endl;
-
 
 	////////////////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////////////////
@@ -156,13 +115,12 @@ int main(int argc, char**argv)
 	struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... MPS starts ......" << endl << endl;  
-	log_ofs << endl << "[" << asctime(local) << "... MPS starts ......" << endl << endl; 
-	//////////////////////////////////////////////////////              LOAD INDEX           ////////////////////////////////////////////////////////////////
+	log_ofs << endl << "[" << asctime(local) << "... MPS starts ......" << endl << endl;
 
+	/////////////////  LOAD INDEX  /////////////////
 	log_ofs << "Reads input 1: " << argv[1] << endl;
 	log_ofs << "Reads input 2: " << argv[2] << endl;
 	log_ofs << "output directory: " << argv[3] << endl;
-	//cout << "Annotation: " << argv[4] << endl;
 	log_ofs << "threads_num: " << argv[4] << endl;
 	log_ofs << "data format: " << argv[5] << endl;
 	log_ofs << "wholeGenomeIndex: " << argv[6] << endl;
@@ -172,13 +130,11 @@ int main(int argc, char**argv)
     char *InputReadFile = argv[1];//read sample, exacted from fastq file every time
     char *InputReadFile_PE = argv[2];// another end read for pair-end reads
 
-	string threadsNumStr = argv[4];
-	int threads_num = atoi(threadsNumStr.c_str());
-	omp_set_num_threads(threads_num);
+	omp_set_num_threads(atoi(argv[4]));
 
 	string fastqOrFasta = argv[5];
 
-	bool InputAsFastq = false; 
+	bool InputAsFastq;
 	if((fastqOrFasta == "fastq")||(fastqOrFasta == "Fastq"))
 	{
 		InputAsFastq = true;
@@ -189,76 +145,53 @@ int main(int argc, char**argv)
 	}
 	else
 	{
-		cout << "input read format error" << endl;
-		log_ofs << "input read format error" << endl;
+		cout << "Incorrect input read format: Please specify 'Fastq' or 'Fasta'." << endl;
+		log_ofs << "Incorrect input read format: Please specify 'Fastq' or 'Fasta'." << endl;
 		exit(0);
 	}
-
 	
-	//////////////////////////////////////////////////////////              LOAD INDEX           ////////////////////////////////////////////////////////////////
-	#ifdef CAL_TIME
-	read_file_begin = clock();
-	#endif
-	nowtime = time(NULL);
-	//struct tm *local;
-	local = localtime(&nowtime);
-	cout << endl << "[" << asctime(local) << "... start to load whole genome index ......" << endl << endl; 
-	log_ofs << endl << "[" << asctime(local) << "... start to load whole genome index ......" << endl << endl; 
+    string indexStr = argv[6];
+    string chromDirStr = argv[8];
+    string secondLevelIndexStr = argv[7];
 
-    //cout << "start to load preIndex ..." << endl;
-    log_ofs << "start to load preIndex ..." << endl;
-	   
-
-    string preIndexArrayPreStr;
-    string indexStr;// = "/data/homes/lxauky/adSA_table/mm9_table/testAll2_table/testAll2Index";
-    string chromDirStr;
-    string secondLevelIndexStr;
-
-    indexStr = argv[6];
-    preIndexArrayPreStr = indexStr;
-    chromDirStr = argv[8];
-    secondLevelIndexStr = argv[7];
-
-    preIndexArrayPreStr.append("/");
     indexStr.append("/");
     chromDirStr.append("/");
     secondLevelIndexStr.append("/");
 
-	string preIndexMapLengthArrayStr = preIndexArrayPreStr;
-	preIndexMapLengthArrayStr.append("_MapLength"); 
-	ifstream preIndexMapLengthArray_ifs(preIndexMapLengthArrayStr.c_str(), ios::binary);
+    string preIndexArrayPreStr = indexStr;
 
-	string preIndexIntervalStartArrayStr = preIndexArrayPreStr;
-	preIndexIntervalStartArrayStr.append("_IntervalStart");
-	ifstream preIndexIntervalStartArray_ifs(preIndexIntervalStartArrayStr.c_str(), ios::binary);
+	//// LOAD INDEX ///////
+	#ifdef CAL_TIME
+	read_file_begin = clock();
+	#endif
 
-	string preIndexIntervalEndArrayStr = preIndexArrayPreStr;
-	preIndexIntervalEndArrayStr.append("_IntervalEnd");
-	ifstream preIndexIntervalEndArray_ifs(preIndexIntervalEndArrayStr.c_str(), ios::binary);
+	nowtime = time(NULL);
+	local = localtime(&nowtime);
+	cout << endl << "[" << asctime(local) << "... start to load whole genome index ......" << endl << endl; 
+	log_ofs << endl << "[" << asctime(local) << "... start to load whole genome index ......" << endl << endl; 
 
+    log_ofs << "start to load preIndex ..." << endl;
 
-	int* preIndexMapLengthArray;
-	preIndexMapLengthArray = (int*)malloc(PreIndexSize * sizeof(int));
+	ifstream preIndexMapLengthArray_ifs((preIndexArrayPreStr + "_MapLength").c_str(), ios::binary);
+	int* preIndexMapLengthArray = (int*)malloc(PreIndexSize * sizeof(int));
 	preIndexMapLengthArray_ifs.read((char*)preIndexMapLengthArray, PreIndexSize * sizeof(int));
 
-	unsigned int *preIndexIntervalStartArray;
-    preIndexIntervalStartArray = (unsigned int*)malloc(PreIndexSize * sizeof(unsigned int));
+	ifstream preIndexIntervalStartArray_ifs((preIndexArrayPreStr + "_IntervalStart").c_str(), ios::binary);
+	unsigned int *preIndexIntervalStartArray = (unsigned int*)malloc(PreIndexSize * sizeof(unsigned int));
     preIndexIntervalStartArray_ifs.read((char*)preIndexIntervalStartArray, PreIndexSize * sizeof(int));
 
-	unsigned int *preIndexIntervalEndArray;
-    preIndexIntervalEndArray = (unsigned int*)malloc(PreIndexSize * sizeof(unsigned int));
+	ifstream preIndexIntervalEndArray_ifs((preIndexArrayPreStr + "_IntervalEnd").c_str(), ios::binary);
+	unsigned int *preIndexIntervalEndArray = (unsigned int*)malloc(PreIndexSize * sizeof(unsigned int));
     preIndexIntervalEndArray_ifs.read((char*)preIndexIntervalEndArray, PreIndexSize * sizeof(int));
 
  	log_ofs << "finish loading preIndex ..." << endl;
 
-	string SA_file = indexStr; SA_file.append("_SA"); ifstream SA_file_ifs(SA_file.c_str(),ios::binary); 
-	//CompressIndex
-	string lcpCompress_file = indexStr; lcpCompress_file.append("_lcpCompress"); ifstream lcpCompress_file_ifs(lcpCompress_file.c_str(),ios::binary);
-	string childTab_file = indexStr; childTab_file.append("_childTab"); ifstream childTab_file_ifs(childTab_file.c_str(),ios::binary);
-	string verifyChild_file = indexStr; verifyChild_file.append("_detChild"); ifstream verifyChild_file_ifs(verifyChild_file.c_str(),ios::binary);
-	string chrom_bit_file = indexStr; chrom_bit_file.append("_chrom"); ifstream chrom_bit_file_ifs(chrom_bit_file.c_str(),ios::binary);
-
-	string parameter_file = indexStr; parameter_file.append("_parameter"); ifstream parameter_file_ifs(parameter_file.c_str(),ios::binary);
+ 	ifstream SA_file_ifs((indexStr + "_SA").c_str(),ios::binary);
+	ifstream lcpCompress_file_ifs((indexStr + "_lcpCompress").c_str(),ios::binary);
+	ifstream childTab_file_ifs((indexStr + "_childTab").c_str(),ios::binary);
+	ifstream verifyChild_file_ifs((indexStr + "_detChild").c_str(),ios::binary);
+	ifstream chrom_bit_file_ifs((indexStr + "_chrom").c_str(),ios::binary);
+	ifstream parameter_file_ifs((indexStr + "_parameter").c_str(),ios::binary);
 
 	Index_Info* indexInfo = new Index_Info(parameter_file_ifs);
 
@@ -266,48 +199,50 @@ int main(int argc, char**argv)
 	///////////////////////////////////////
  
 	log_ofs << "start to load whole genome" << endl;
-	char *chrom;
-
-	chrom = (char*)malloc((indexInfo->indexSize) * sizeof(char));
+	char *chrom = (char*)malloc((indexInfo->indexSize) * sizeof(char));
 	chrom_bit_file_ifs.read((char*)chrom, (indexInfo->indexSize) * sizeof(char)); 
 
 	indexInfo->chromString = chrom;
 	log_ofs << "chromSize = " <<(indexInfo->chromString).size() << endl;
 	
 	log_ofs << "start to load every chromosome" << endl;
-	//chromStr[0] = 
+
 	(indexInfo->chromStr).push_back((indexInfo->chromString).substr(0, (indexInfo->chrEndPosInGenome)[0]+1));
 	(indexInfo->chromLength).push_back(((indexInfo->chrEndPosInGenome)[0]+1));
 	for(int tmp = 1; tmp < indexInfo->chromNum; tmp++)
 	{
-		//chromStr[tmp] = 
 		(indexInfo->chromStr).push_back((indexInfo->chromString).substr((indexInfo->chrEndPosInGenome)[tmp-1]+2, 
 			(indexInfo->chrEndPosInGenome)[tmp]-(indexInfo->chrEndPosInGenome)[tmp-1]-1));	
 		(indexInfo->chromLength).push_back(((indexInfo->chrEndPosInGenome)[tmp]-(indexInfo->chrEndPosInGenome)[tmp-1]-1));
 	}	
 
 	log_ofs << "start to load SA" << endl;
-    unsigned int *sa;
-    sa = (unsigned int*)malloc((indexInfo->indexSize) * sizeof(unsigned int));
+    unsigned int *sa = (unsigned int*)malloc((indexInfo->indexSize) * sizeof(unsigned int));
     SA_file_ifs.read((char*)sa, (indexInfo->indexSize) * sizeof(unsigned int));
+
 	log_ofs << "start to load lcpCompress" << endl;
-	BYTE *lcpCompress;
-	lcpCompress = (BYTE*)malloc((indexInfo->indexSize) * sizeof(BYTE));
+	BYTE *lcpCompress = (BYTE*)malloc((indexInfo->indexSize) * sizeof(BYTE));
 	lcpCompress_file_ifs.read((char*)lcpCompress, (indexInfo->indexSize) * sizeof(BYTE));	
 
-	//Xinan: Compress Index
-	//read childTab file
 	log_ofs << "start to load childTab " << endl;
-	unsigned int *childTab;
-	childTab = (unsigned int*)malloc((indexInfo->indexSize) * sizeof(unsigned int));
+	unsigned int *childTab = (unsigned int*)malloc((indexInfo->indexSize) * sizeof(unsigned int));
 	childTab_file_ifs.read((char*)childTab, (indexInfo->indexSize) * sizeof(unsigned int));
-	//cout << "childTab loaded" << endl;
 
 	log_ofs << "start to load detChild" << endl;
-	BYTE *verifyChild;
-	verifyChild = (BYTE*)malloc((indexInfo->indexSize) * sizeof(BYTE));
+	BYTE *verifyChild = (BYTE*)malloc((indexInfo->indexSize) * sizeof(BYTE));
 	verifyChild_file_ifs.read((char*)verifyChild, (indexInfo->indexSize) * sizeof(BYTE));
 	
+	Chromosome* alignmentChromosome = new Chromosome(
+		sa,
+		lcpCompress,
+		childTab,
+		verifyChild,
+		chrom,
+		indexInfo,
+		preIndexMapLengthArray,
+		preIndexIntervalStartArray,
+		preIndexIntervalEndArray);
+
 	log_ofs << "All index files loaded" << endl;
 	
 	#ifdef CAL_TIME
@@ -317,246 +252,125 @@ int main(int argc, char**argv)
 	#endif
 	//////////////////////////////////////////////////
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... whole genome index loaded ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... whole genome index loaded ......" << endl << endl;
 
-	HeaderSection_Info* headerSectionInfo = new HeaderSection_Info(indexInfo);	
+	/////// Finished Loading Index //////////
 
-	//////////////////////////////////////////////////       finish LOADing INDEX           ////////////////////////////////////////////////////////////////
-	//////////////////////////////////////////////////       finish LOADing INDEX           ////////////////////////////////////////////////////////////////
-
-
-	//////////////////////////////////////////////////       1st Mapping Process           ////////////////////////////////////////////////////////////////
-	//////////////////////////////////////////////////       1st Mapping Process           ////////////////////////////////////////////////////////////////
-
-	/* align main*/
+	/////// 1st Mapping Process /////////////
 
    	string testClassFileStr = outputDirStr + "/output.sam";
-   	//testClassFileStr += ".testClass.sam";
-   	//ofstream testClassFile_ofs(testClassFileStr.c_str());
-
 	string tmpAlignInfoForDebug = testClassFileStr+ ".alignInfoDebug";
-
 	string tmpAlignUnmap = testClassFileStr + ".unmap";
-
 	string tmpAlignCompleteRead = testClassFileStr + ".completePair.sam";
-	ofstream tmpAlignCompleteRead_ofs(tmpAlignCompleteRead.c_str());
-
-	tmpAlignCompleteRead_ofs << headerSectionInfo->headerSectionInfoStr << endl;
-
+	string tmpAlignBothEndsUnmapped = testClassFileStr + ".bothEndsUnmapped.sam";
+	string tmpAlignIncompletePair = testClassFileStr + ".incomplete.alignInfo";
+	string tmpAlignIncompletePair_SAM = testClassFileStr + ".incompletePair.sam";
+	string tmpAlignCompleteRead_alignInfo = testClassFileStr + ".completePair.sam_alignInfo";
 	string tmpAlignOneEndUnmapped = testClassFileStr + ".oneEndUnmapped";
 	
-	if(Do_Phase1_Only)
-		tmpAlignOneEndUnmapped += ".sam";	
-	else
-		tmpAlignOneEndUnmapped += ".alignInfo";
+	tmpAlignOneEndUnmapped += Do_Phase1_Only
+		? ".sam"
+		: ".alignInfo";
 
 	ofstream tmpAlignOneEndUnmapped_ofs(tmpAlignOneEndUnmapped.c_str());
-
-	string tmpAlignBothEndsUnmapped = testClassFileStr + ".bothEndsUnmapped.sam";
 	ofstream tmpAlignBothEndsUnmapped_ofs(tmpAlignBothEndsUnmapped.c_str());
-
-	string tmpAlignIncompletePair = testClassFileStr + ".incomplete.alignInfo"; 
 	ofstream tmpAlignIncompletePair_ofs(tmpAlignIncompletePair.c_str());
-
-	string tmpAlignIncompletePair_SAM = testClassFileStr + ".incompletePair.sam"; 
-	ofstream tmpAlignIncompletePair_SAM_ofs(tmpAlignIncompletePair_SAM.c_str());	
+	ofstream tmpAlignIncompletePair_SAM_ofs(tmpAlignIncompletePair_SAM.c_str());
+	ofstream tmpAlignCompleteRead_alignInfo_ofs(tmpAlignCompleteRead_alignInfo.c_str());
+	ofstream tmpAlignCompleteRead_ofs(tmpAlignCompleteRead.c_str());
 
 	string tmpIntermediateJunctionFile = testClassFileStr + ".inter.junc";
-
-	string tmpAlignCompleteRead_alignInfo = testClassFileStr + ".completePair.sam_alignInfo";
-	ofstream tmpAlignCompleteRead_alignInfo_ofs(tmpAlignCompleteRead_alignInfo.c_str());
 
 	ifstream inputRead_ifs(InputReadFile);
 	ifstream inputRead_PE_ifs(InputReadFile_PE);
 
-    string line1, line2, line3, line4, line1_PE, line2_PE, line3_PE, line4_PE;
-    string line2_afterProcess, line2_PE_afterProcess;
+	vector<PairedEndRead*> pairedEndReads;
 
-	int normalRecordNum = normalRecordNum_1stMapping; //1000000;//1500000;
-
-	#ifdef DEBUG_INFO
-	normalRecordNum = 1;
-	#endif
-
-	bool EndOfRecord = false;
-	int tmpTurn = 0;
-	int realRecordNum;
-
-	int readPairNum = 0;
-
-	vector<string> readName1Vec(normalRecordNum);
-	vector<string> readSeq1Vec(normalRecordNum);
-	//vector<string> readSeq1Vec_RC(normalRecordNum);
-	vector<string> readName2Vec(normalRecordNum);
-	vector<string> readSeq2Vec(normalRecordNum);
-
-	vector<string> PeAlignSamStrVec_complete(normalRecordNum);
-
-	vector<string> PeAlignInfoStrVec_inCompletePair(normalRecordNum);
-
-	vector<string> PeAlignInfoStrVec_oneEndUnmapped(normalRecordNum);
-
-	vector<string> PeAlignSamStrVec_bothEndsUnmapped(normalRecordNum);
-
-	vector<string> PeAlignSamStrVec_inCompletePair(normalRecordNum);
-
-	//if(outputAlignInfoAndSamForAllPairedAlignmentBool)
-	//{
-		vector<string> PeAlignInfoStrVec_completePaired(normalRecordNum);
-	//}
+	vector<string> PeAlignSamStrVec_complete(firstMappingRecordNumber);
+	vector<string> PeAlignInfoStrVec_inCompletePair(firstMappingRecordNumber);
+	vector<string> PeAlignInfoStrVec_oneEndUnmapped(firstMappingRecordNumber);
+	vector<string> PeAlignSamStrVec_bothEndsUnmapped(firstMappingRecordNumber);
+	vector<string> PeAlignSamStrVec_inCompletePair(firstMappingRecordNumber);
+	vector<string> PeAlignInfoStrVec_completePaired(firstMappingRecordNumber);
 
 	nowtime = time(NULL);
-	//struct tm *local;
+
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... 1st mapping process starts ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... 1st mapping process starts ......" << endl << endl; 
 
 	int readLengthMax_tmp = 0;
+	string line;
+	int realRecordNum;
+	int readTotalNum = 0;
+	bool endOfRecord = false;
 
-	InputReadPreProcess* readPreProcessInfo = new InputReadPreProcess();
-
-	for(tmpTurn = 0; ; tmpTurn++)
+	while(!endOfRecord)
 	{
 		#ifdef CAL_TIME		
 		input_begin = clock();
 		#endif
 
-		if(EndOfRecord)
-			break;
-
-		int recordNum = normalRecordNum;
-
-		//cout << "start to read Fasta file, turn: " << tmpTurn + 1 << endl;
-
-		realRecordNum = normalRecordNum;
-
-		for(int recordNumTmp = 0; recordNumTmp < recordNum; recordNumTmp++)
+		for(realRecordNum = 0; realRecordNum < firstMappingRecordNumber; readTotalNum++, realRecordNum++)
 		{
     		if((inputRead_ifs.eof())||(inputRead_PE_ifs.eof()))
     		{
-				realRecordNum = recordNumTmp;
-				EndOfRecord = true;
+				endOfRecord = true;
 				break;    			
     		}
 
-    		getline(inputRead_ifs, line1); // readName_1
+    		getline(inputRead_ifs, line); // readName_1
     		
     		if((inputRead_ifs.eof())||(inputRead_PE_ifs.eof()))
     		{
-				realRecordNum = recordNumTmp;
-				EndOfRecord = true;
+				endOfRecord = true;
 				break;    			
     		}
     		
-    		readName1Vec[recordNumTmp] = line1.substr(1);
-    		getline(inputRead_ifs, line2); // readSeq_1
+    		string readNameOne = line.substr(1);
 
-    		//readSeq1Vec[recordNumTmp] = line2;
-    		//int readLength_1 = line2.length();
+    		getline(inputRead_ifs, line); // readSeq_1
+    		string readSequenceOne = Utilities::toUpper(line);
 
-    		line2_afterProcess = readPreProcessInfo->upperCaseReadSeq(line2);
-    		//line2_afterProcess = readPreProcessInfo->readPreProcess_upperCase_trim(line2);
-    		readSeq1Vec[recordNumTmp] = line2_afterProcess;
-    		int readLength_1 = line2_afterProcess.length();
-
-
-			if(readLength_1 > readLengthMax_tmp)
-			{
-				readLengthMax_tmp = readLength_1;
-			}
     		if(InputAsFastq)
     		{
-    			getline(inputRead_ifs, line3);
-    			getline(inputRead_ifs, line4);
+    			getline(inputRead_ifs, line);
+    			getline(inputRead_ifs, line);
     		}
 
-    		getline(inputRead_PE_ifs, line1_PE); // readName_2
-    		readName2Vec[recordNumTmp] = line1_PE.substr(1);
-    		getline(inputRead_PE_ifs, line2_PE);
-    	
-    		//readSeq2Vec[recordNumTmp] = line2_PE;
-    		//int readLength_2 = line2_PE.length();
-    	    		
-    		line2_PE_afterProcess = readPreProcessInfo->upperCaseReadSeq(line2_PE);
-    		//line2_PE_afterProcess = readPreProcessInfo->readPreProcess_upperCase_trim(line2_PE);
-    		readSeq2Vec[recordNumTmp] = line2_PE_afterProcess;
-    		int readLength_2 = line2_PE_afterProcess.length();
+    		getline(inputRead_PE_ifs, line);
+    		string readNameTwo = line.substr(1);
 
-    		if(readLength_2 > readLengthMax_tmp)
-    		{
-    			readLengthMax_tmp = readLength_2;
-    		}
+    		getline(inputRead_PE_ifs, line);
+    		string readSequenceTwo = Utilities::toUpper(line);
+
     		if(InputAsFastq)
     		{
-    			getline(inputRead_PE_ifs, line3_PE);
-    			getline(inputRead_PE_ifs, line4_PE);
+    			getline(inputRead_PE_ifs, line);
+    			getline(inputRead_PE_ifs, line);
     		}
+
+    		pairedEndReads.push_back(new PairedEndRead(
+				readNameOne,
+				readNameTwo,
+				readSequenceOne,
+				readSequenceTwo));
 		}
-
-		readTotalNum += realRecordNum;
 
 		#ifdef CAL_TIME	
 		input_end = clock();
 		input_cost = input_cost + input_end - input_begin;
-		#endif
-		//cout << "realRecordNum: " << realRecordNum << " turn: " << tmpTurn+1 << endl;
-
-		//cout << "finish reading Fasta/Fastq file, turn: " << tmpTurn+1 << endl;
-
-		//cout << "start to fix mid, turn: " << tmpTurn+1 << endl;
-
-		#ifdef CAL_TIME	
 		align_begin = clock();
 		#endif
 
-		omp_set_num_threads(threads_num);
-		
 		#pragma omp parallel for
-		for(int tmpOpenMP = 0; tmpOpenMP < realRecordNum; tmpOpenMP++)
+		for(int i=0; i<realRecordNum; i++)
 		{
-			//#ifdef DEBUG_INFO
-			//readPairNum ++;
-			//if((readPairNum != 928)&&(readPairNum < 847283))  
-			//	continue;
-			//if(readPairNum > 98880)
-			//	exit(1);
-				//continue;
-				//break;
-			//#endif
-			//cout << "readName: " << readName1Vec[tmpOpenMP] << endl << endl;
 			#ifdef CAL_TIME
 			getReadInfo_begin = clock();
 			#endif
-
-			//cout << "readName_1: " << readName1Vec[tmpOpenMP] << endl;
-			//cout << "readSeq_1: " << endl << readSeq1Vec[tmpOpenMP] << endl;
-			//cout << "readName_2: " << readName2Vec[tmpOpenMP] << endl;
-			//cout << "readSeq_2: " << endl << readSeq2Vec[tmpOpenMP] << endl;
-
-			PE_Read_Info* readInfo = new PE_Read_Info();
-
-			readInfo->getFastaFormatReadInfo(readName1Vec[tmpOpenMP], readName2Vec[tmpOpenMP],
-				readSeq1Vec[tmpOpenMP], readSeq2Vec[tmpOpenMP]);
-
-			char* read = const_cast<char*>((readInfo->readInfo_pe1).readSeq.c_str());
-			char* read_PE = const_cast<char*>((readInfo->readInfo_pe2).readSeq.c_str());
-
-    		char read_RC[(readInfo->readInfo_pe1).readSeqLength], read_RC_PE[(readInfo->readInfo_pe2).readSeqLength];
-
-    		for(int read_RC_loc = 0; read_RC_loc < (readInfo->readInfo_pe1).readSeqLength; read_RC_loc++) // get read_RC
-    			*(read_RC + read_RC_loc) = reverseComplement(*(read + (readInfo->readInfo_pe1).readSeqLength - 1 - read_RC_loc)); 			
-     		for(int read_RC_loc = 0; read_RC_loc < (readInfo->readInfo_pe2).readSeqLength; read_RC_loc++) // get read_RC_PE
-    			*(read_RC_PE + read_RC_loc) = reverseComplement(*(read_PE + (readInfo->readInfo_pe2).readSeqLength - 1 - read_RC_loc)); 
-
-    		string rcmReadSeq_1 = read_RC;
-    		(readInfo->readInfo_pe1).rcmReadSeq = rcmReadSeq_1.substr(0, (readInfo->readInfo_pe1).readSeqLength);
-
-    		string rcmReadSeq_2 = read_RC_PE;
-    		(readInfo->readInfo_pe2).rcmReadSeq = rcmReadSeq_2.substr(0, (readInfo->readInfo_pe2).readSeqLength);
-			
 
 			#ifdef CAL_TIME 
 			getReadInfo_end = clock();
@@ -565,50 +379,16 @@ int main(int argc, char**argv)
     		segMap_begin = clock();
     		#endif
 
-    		
-			FixPhase1Info* fixPhase1Info = new FixPhase1Info();
+			FixPhase1Info* fixPhase1Info = new FixPhase1Info(pairedEndReads[i], alignmentChromosome);
 
-			fixPhase1Info->fixPhase1_segInfo(read, read_RC, read_PE, read_RC_PE, sa, lcpCompress, childTab, 
-				chrom, verifyChild, indexInfo, preIndexMapLengthArray, preIndexIntervalStartArray, preIndexIntervalEndArray,
-				readInfo);
-
-				//cout << endl << "## do segment mapping for Nor_1 ##" << endl;
-				//cout << (fixPhase1Info->segInfo_Nor1)->segInfoStr(indexInfo) << endl;
-				//cout << pathInfo_Nor1->possiPathStr() << endl;
-				//cout << pathInfo_Nor1->fixedPathVecStr(indexInfo, segInfo_Nor1) << endl;
-				//cout << pathInfo_Nor1->finalFixedPathStr(indexInfo) << endl;
-
-		    	//cout << endl << "## do segment mapping for Rcm_1 ##" << endl;
-		    	//cout << (fixPhase1Info->segInfo_Rcm1)->segInfoStr(indexInfo) << endl;
-				//cout << pathInfo_Rcm1->possiPathStr() << endl;
-				//cout << pathInfo_Rcm1->fixedPathVecStr(indexInfo, segInfo_Rcm1) << endl;
-				//cout << pathInfo_Rcm1->finalFixedPathStr(indexInfo) << endl;
-
-				//cout << endl << "## do segment mapping for Nor_2 ##" << endl;
-				//cout << (fixPhase1Info->segInfo_Nor2)->segInfoStr(indexInfo) << endl;
-				//cout << pathInfo_Nor2->possiPathStr() << endl;
-				//cout << pathInfo_Nor2->fixedPathVecStr(indexInfo, segInfo_Nor2) << endl;
-				//cout << pathInfo_Nor2->finalFixedPathStr(indexInfo) << endl;
-
-				//cout << endl << "## do segment mapping for Rcm_2 ##" << endl;
-				//cout << (fixPhase1Info->segInfo_Rcm2)->segInfoStr(indexInfo) << endl;
-				//cout << pathInfo_Rcm2->possiPathStr() << endl;
-				//cout << pathInfo_Rcm2->fixedPathVecStr(indexInfo, segInfo_Rcm2) << endl;
-				//cout << pathInfo_Rcm2->finalFixedPathStr(indexInfo) << endl;		
-
- 
 			#ifdef CAL_TIME
 			segMap_end = clock();
 			segMap_cost = segMap_cost + segMap_end - segMap_begin;
 
 			getPath_begin = clock();
 			#endif
-			     
 
 			fixPhase1Info->fixPhase1_pathInfo();
-			//cout << "finish fixing pathInfo ..." << endl; 
-			//cout << fixPhase1Info->pathInfo_Nor1->possiPathStr() << endl;
-
 
 			#ifdef CAL_TIME
 			getPath_end = clock();
@@ -617,9 +397,7 @@ int main(int argc, char**argv)
 			fixGap_begin = clock();
 			#endif
 
-
-			fixPhase1Info->fixPhase1_gapInfo(readInfo, indexInfo);
-
+			fixPhase1Info->fixPhase1_gapInfo(indexInfo);
 
 			#ifdef CAL_TIME
 			fixGap_end = clock();
@@ -632,7 +410,6 @@ int main(int argc, char**argv)
 				fixPhase1Info->pathInfo_Nor1, fixPhase1Info->pathInfo_Rcm1, 
 				fixPhase1Info->pathInfo_Nor2, fixPhase1Info->pathInfo_Rcm2, indexInfo);
 
-
 			peAlignInfo->pairingAlignment();
 			peAlignInfo->chooseBestAlignment();
 
@@ -643,84 +420,53 @@ int main(int argc, char**argv)
 			getSamFormat_begin = clock();
 			#endif		
 			
-			PeAlignSamStrVec_complete[tmpOpenMP] = "";			
-			PeAlignInfoStrVec_inCompletePair[tmpOpenMP] = "";
-			PeAlignInfoStrVec_oneEndUnmapped[tmpOpenMP] = "";
-			PeAlignSamStrVec_bothEndsUnmapped[tmpOpenMP] = "";
-			PeAlignSamStrVec_inCompletePair[tmpOpenMP] = "";
+			PeAlignSamStrVec_complete[i] = "";
+			PeAlignInfoStrVec_inCompletePair[i] = "";
+			PeAlignInfoStrVec_oneEndUnmapped[i] = "";
+			PeAlignSamStrVec_bothEndsUnmapped[i] = "";
+			PeAlignSamStrVec_inCompletePair[i] = "";
 
 			if(outputAlignInfoAndSamForAllPairedAlignmentBool)
-			{
-				PeAlignInfoStrVec_completePaired[tmpOpenMP] = "";
-			}
-			bool pairExistsBool = peAlignInfo->finalPairExistsBool();
-			if(pairExistsBool) // some pair exists
+				PeAlignInfoStrVec_completePaired[i] = "";
+
+			if(peAlignInfo->finalPairExistsBool()) // some pair exists
 			{
 				bool allAlignmentCompleteBool = peAlignInfo->allAlignmentInFinalPairCompleted();
 				if(allAlignmentCompleteBool)
 				{
-					/*PeAlignSamStrVec_complete[tmpOpenMP] = peAlignInfo->getTmpPEreadAlignInfoInSAMformatForFinalPair(
-					 	(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);*/
-					PeAlignSamStrVec_complete[tmpOpenMP] = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(
-					 	(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);
+					PeAlignSamStrVec_complete[i] =
+						peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(pairedEndReads[i]);
+
 					if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 					{
-						PeAlignInfoStrVec_completePaired[tmpOpenMP] = peAlignInfo->getTmpAlignInfoForFinalPair(
-					 		(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-							(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq,
-							(readInfo->readInfo_pe1).readQual, (readInfo->readInfo_pe2).readQual);
+						PeAlignInfoStrVec_completePaired[i] =
+							peAlignInfo->getTmpAlignInfoForFinalPair(pairedEndReads[i]);
 					}
 				}
 				else
 				{
 					if(!Do_Phase1_Only)
 					{
-						PeAlignInfoStrVec_inCompletePair[tmpOpenMP] = peAlignInfo->getTmpAlignInfoForFinalPair(
-					 		(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-							(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq,
-							(readInfo->readInfo_pe1).readQual, (readInfo->readInfo_pe2).readQual);
+						PeAlignInfoStrVec_inCompletePair[i] =
+							peAlignInfo->getTmpAlignInfoForFinalPair(pairedEndReads[i]);
 					}
 
-					/*PeAlignSamStrVec_inCompletePair[tmpOpenMP] = peAlignInfo->getTmpPEreadAlignInfoInSAMformatForFinalPair(
-					 	(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);*/
-					PeAlignSamStrVec_inCompletePair[tmpOpenMP] = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot (
-					 	(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);
+					PeAlignSamStrVec_inCompletePair[i] =
+						peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(pairedEndReads[i]);
 				}
 			}
 			else // no pair exists: 1.one end unmapped; 2. both ends unmapped
 			{
-				bool alignmentExistsBool = peAlignInfo->alignInfoExistsBool();
-				if(alignmentExistsBool) // one end unmapped
+				if(peAlignInfo->alignInfoExistsBool()) // one end unmapped
 				{	
-					if(Do_Phase1_Only)
-					{
-						/*PeAlignInfoStrVec_oneEndUnmapped[tmpOpenMP] = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-			 				(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-							(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);*/ 
-						PeAlignInfoStrVec_oneEndUnmapped[tmpOpenMP] = peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot (
-							(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-							(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);
-					}
-					else
-					{
-						PeAlignInfoStrVec_oneEndUnmapped[tmpOpenMP] = peAlignInfo->getTmpAlignInfo(
-						 	(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-							(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq,
-							(readInfo->readInfo_pe1).readQual, (readInfo->readInfo_pe2).readQual);
-					}
+					PeAlignInfoStrVec_oneEndUnmapped[i] =
+						peAlignInfo->getTmpAlignInfo(pairedEndReads[i]);
+
 				}
 				else // both ends unmapped
 				{
-					/*PeAlignSamStrVec_bothEndsUnmapped[tmpOpenMP] = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-			 			(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);*/
-					PeAlignSamStrVec_bothEndsUnmapped[tmpOpenMP] = peAlignInfo->getSAMformatForBothEndsUnmapped(
-			 			(readInfo->readInfo_pe1).readName, (readInfo->readInfo_pe2).readName, 
-						(readInfo->readInfo_pe1).readSeq, (readInfo->readInfo_pe2).readSeq);						
+					PeAlignSamStrVec_bothEndsUnmapped[i] =
+						peAlignInfo->getSAMformatForBothEndsUnmapped(pairedEndReads[i]);
 				}
 			}
 			
@@ -735,11 +481,9 @@ int main(int argc, char**argv)
 			fixPhase1Info->coutDebugInfo(readInfo, indexInfo);
 			#endif
 
-			fixPhase1Info->memoryFree();
-			delete (fixPhase1Info);
-			delete(readInfo); 
-			peAlignInfo->memoryFree(); 
-			delete(peAlignInfo);
+			delete fixPhase1Info;
+			delete pairedEndReads[i];
+			delete peAlignInfo;
 
 			#ifdef CAL_TIME
 			freeMem_end = clock();
@@ -770,48 +514,31 @@ int main(int argc, char**argv)
 			{
 				tmpAlignCompleteRead_ofs << PeAlignSamStrVec_complete[tmp] << endl;
 				PairedReadNum ++;
-				//PeAlignSamStrVec_complete[tmp] = "";
 			}			
 
 			if(PeAlignInfoStrVec_inCompletePair[tmp] != "")
-			{
 				tmpAlignIncompletePair_ofs << PeAlignInfoStrVec_inCompletePair[tmp] << endl;
-				//PeAlignInfoStrVec_inCompletePair[tmp] = "";
-			}
 			
 			if(PeAlignInfoStrVec_oneEndUnmapped[tmp] != "")
-			{
 				tmpAlignOneEndUnmapped_ofs << PeAlignInfoStrVec_oneEndUnmapped[tmp] << endl;
-				//PeAlignInfoStrVec_oneEndUnmapped[tmp] = "";
-			}
 			
 			if(PeAlignSamStrVec_bothEndsUnmapped[tmp] != "")
 			{
 				tmpAlignBothEndsUnmapped_ofs << PeAlignSamStrVec_bothEndsUnmapped[tmp] << endl;
-				//PeAlignSamStrVec_bothEndsUnmapped[tmp] = "";
 				BothUnmappedReadNum ++;
 			}
 
 			if(PeAlignSamStrVec_inCompletePair[tmp] != "")
-			{
 				tmpAlignIncompletePair_SAM_ofs << PeAlignSamStrVec_inCompletePair[tmp] << endl;
-			}
 
-			if(outputAlignInfoAndSamForAllPairedAlignmentBool)
-			{
-				if(PeAlignInfoStrVec_completePaired[tmp] != "")
-				{
-					tmpAlignCompleteRead_alignInfo_ofs << PeAlignInfoStrVec_completePaired[tmp] << endl;
-				}
-			}
-
+			if(outputAlignInfoAndSamForAllPairedAlignmentBool && PeAlignInfoStrVec_completePaired[tmp] != "")
+				tmpAlignCompleteRead_alignInfo_ofs << PeAlignInfoStrVec_completePaired[tmp] << endl;
 		}
 
 		#ifdef CAL_TIME
 		output_end = clock();
 		output_cost = output_cost + output_end - output_begin;
 		#endif
-		//cout << "finish output, turn: " << tmpTurn+1 << endl << endl;
 
 	}
 
@@ -820,7 +547,6 @@ int main(int argc, char**argv)
 	inputRead_ifs.close();
 	inputRead_PE_ifs.close();
 	tmpAlignCompleteRead_ofs.close();
-	//tmpAlignIncompletePair_ofs.close();
 	tmpAlignOneEndUnmapped_ofs.close();
 	tmpAlignBothEndsUnmapped_ofs.close();
 	tmpAlignIncompletePair_SAM_ofs.close();
@@ -829,18 +555,13 @@ int main(int argc, char**argv)
 		tmpAlignIncompletePair_ofs.close();
 	}
 
-	//fclose(fp_in);
-
-	free(preIndexMapLengthArray); free(preIndexIntervalStartArray); free(preIndexIntervalEndArray);
-	free(sa);free(lcpCompress);//free(child_up);free(child_down);free(child_next);
-	free(childTab);free(chrom);
+	delete alignmentChromosome;
 	
 	#ifdef CAL_TIME
 	overall_end = clock();
 	#endif
 	
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... 1st mapping process ends ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... 1st mapping process ends ......" << endl << endl; 
@@ -880,28 +601,17 @@ int main(int argc, char**argv)
 	#endif
 
 	log_ofs << endl << "**********************************" << endl << "**********************************" << endl;
-	//cout << endl << "totalReadNum = " << read_num << endl;
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////    	Load Second Level Index      ////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	nowtime = time(NULL);
-	//struct tm *local;
+
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... start to load 2nd level index ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... load 2nd level index starts ......" << endl << endl; 
 
-	vector<char*> secondLevelChrom;
-	vector<unsigned int*> secondLevelSa;
-
-	vector<BYTE*> secondLevelLcpCompress;
-	vector<unsigned int*> secondLevelChildTab;
-	vector<BYTE*> secondLevelDetChild;
-
-	vector<unsigned int*> secondLevelLcp;
-	vector<unsigned int*> secondLevelUp;
-	vector<unsigned int*> secondLevelDown;
-	vector<unsigned int*> secondLevelNext;
+	vector<SecondLevelChromosome*> secondLevelChromVector;
 
 	if(load2ndLevelIndexBool)
 	{
@@ -916,50 +626,28 @@ int main(int argc, char**argv)
 				sprintf(tmpFileNumChar, "%d", tmpSecondLevelIndexNO);
 				string tmpFileNumStr = tmpFileNumChar;
 				
-				string inputIndexFileStr = secondLevelIndexStr + "/" + indexInfo->chrNameStr[tmpChrNO] + "/" 
-					//+ indexInfo->chrNameStr[tmpChrNO] + "_part."
-					+ tmpFileNumStr + "/";//"." + "test3_";
+				string inputIndexFileStr = secondLevelIndexStr +
+					"/" +
+					indexInfo->chrNameStr[tmpChrNO] +
+					"/"	+
+					tmpFileNumStr +
+					"/";
 
-
-				string secondLevelIndexFileChromStr = inputIndexFileStr + "chrom"; 
-				ifstream secondLevelChrom_file_ifs(secondLevelIndexFileChromStr.c_str(), ios::binary);
-				string secondLevelIndexFileSaStr = inputIndexFileStr + "SA";
-				ifstream secondLevelSA_file_ifs(secondLevelIndexFileSaStr.c_str(), ios::binary);
-
-				//if(!load2ndLevelIndexBool_compressedSize)
-				//{
-				
-					string secondLevelIndexFileLcpStr = inputIndexFileStr + "lcp";	
-					ifstream secondLevelLcp_file_ifs(secondLevelIndexFileLcpStr.c_str(), ios::binary);	
-					string secondLevelIndexFileUpStr = inputIndexFileStr + "up";	
-					ifstream secondLevelUp_file_ifs(secondLevelIndexFileUpStr.c_str(), ios::binary);
-					string secondLevelIndexFileDownStr = inputIndexFileStr + "down";	
-					ifstream secondLevelDown_file_ifs(secondLevelIndexFileDownStr.c_str(), ios::binary);
-					string secondLevelIndexFileNextStr = inputIndexFileStr + "next";	
-					ifstream secondLevelNext_file_ifs(secondLevelIndexFileNextStr.c_str(), ios::binary);
-				
-				//}
-				//else
-				//{
-					string secondLevelIndexFileLcpCompressStr = inputIndexFileStr + "_lcpCompress";	
-					ifstream secondLevelLcpCompress_file_ifs(secondLevelIndexFileLcpCompressStr.c_str(), ios::binary);	
-					string secondLevelIndexFileChildTabStr = inputIndexFileStr + "childTab";	
-					ifstream secondLevelChildTab_file_ifs(secondLevelIndexFileChildTabStr.c_str(), ios::binary);
-					string secondLevelIndexFileDetChildStr = inputIndexFileStr + "detChild";	
-					ifstream secondLevelDetChild_file_ifs(secondLevelIndexFileDetChildStr.c_str(), ios::binary);					
-				//}
+				// Name of all of the second level index files
+				ifstream secondLevelChrom_file_ifs((inputIndexFileStr + "chrom").c_str(), ios::binary);
+				ifstream secondLevelSA_file_ifs((inputIndexFileStr + "SA").c_str(), ios::binary);
+				ifstream secondLevelLcpCompress_file_ifs((inputIndexFileStr + "_lcpCompress").c_str(), ios::binary);
+				ifstream secondLevelChildTab_file_ifs((inputIndexFileStr + "childTab").c_str(), ios::binary);
+				ifstream secondLevelDetChild_file_ifs((inputIndexFileStr + "detChild").c_str(), ios::binary);
 
 				int sizeOfIndex = indexInfo->secondLevelIndexNormalSize + 1;
 				char* tmpSecondLevelChrom = (char*)malloc(sizeOfIndex * sizeof(char));
 				for(int tmpMallocSpace = 0; tmpMallocSpace < sizeOfIndex; tmpMallocSpace++)
-				{
 					tmpSecondLevelChrom[tmpMallocSpace] = '0';
-				}
+
 				secondLevelChrom_file_ifs.read((char*)tmpSecondLevelChrom, sizeOfIndex * sizeof(char));
 				if(tmpSecondLevelChrom[sizeOfIndex-1] != 'X')
-				{
 					(indexInfo->invalidSecondLevelIndexNOset).insert(secondLevelIndexNO + 1);
-				}
 
 				bool No_ATGC_Bool = true;
 				for(int tmpMallocSpace = 0; tmpMallocSpace < sizeOfIndex; tmpMallocSpace++)
@@ -970,88 +658,64 @@ int main(int argc, char**argv)
 						No_ATGC_Bool = false;
 						break;
 					}
-				}				
-				if(No_ATGC_Bool)
-				{
-					(indexInfo->invalidSecondLevelIndexNOset).insert(secondLevelIndexNO + 1);
-				}	
+				}
 
-				secondLevelChrom.push_back(tmpSecondLevelChrom);
-				
+				if(No_ATGC_Bool)
+					(indexInfo->invalidSecondLevelIndexNOset).insert(secondLevelIndexNO + 1);
+
 				unsigned int* tmpSecondLevelSa = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
 				secondLevelSA_file_ifs.read((char*)tmpSecondLevelSa, sizeOfIndex * sizeof(unsigned int));
-				secondLevelSa.push_back(tmpSecondLevelSa);
 
-				if(!load2ndLevelIndexBool_compressedSize)
-				{
-					unsigned int* tmpSecondLevelLcp = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
-					secondLevelLcp_file_ifs.read((char*)tmpSecondLevelLcp, sizeOfIndex * sizeof(unsigned int));
-					secondLevelLcp.push_back(tmpSecondLevelLcp);
-					
-					unsigned int* tmpSecondLevelUp = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
-					secondLevelUp_file_ifs.read((char*)tmpSecondLevelUp, sizeOfIndex * sizeof(unsigned int));
-					secondLevelUp.push_back(tmpSecondLevelUp);
-					
-					unsigned int* tmpSecondLevelDown = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
-					secondLevelDown_file_ifs.read((char*)tmpSecondLevelDown, sizeOfIndex * sizeof(unsigned int));
-					secondLevelDown.push_back(tmpSecondLevelDown);
-					
-					unsigned int* tmpSecondLevelNext = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
-					secondLevelNext_file_ifs.read((char*)tmpSecondLevelNext, sizeOfIndex * sizeof(unsigned int));
-					secondLevelNext.push_back(tmpSecondLevelNext);
-				}
-				else
-				{
-					BYTE* tmpSecondLevelLcpCompress = (BYTE*)malloc(sizeOfIndex * sizeof(BYTE));
-					secondLevelLcpCompress_file_ifs.read((char*)tmpSecondLevelLcpCompress, sizeOfIndex * sizeof(BYTE));
-					secondLevelLcpCompress.push_back(tmpSecondLevelLcpCompress);
-					
-					unsigned int* tmpSecondLevelChildTab = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
-					secondLevelChildTab_file_ifs.read((char*)tmpSecondLevelChildTab, sizeOfIndex * sizeof(unsigned int));
-					secondLevelChildTab.push_back(tmpSecondLevelChildTab);
+				BYTE* tmpSecondLevelLcpCompress = (BYTE*)malloc(sizeOfIndex * sizeof(BYTE));
+				secondLevelLcpCompress_file_ifs.read((char*)tmpSecondLevelLcpCompress, sizeOfIndex * sizeof(BYTE));
 
-					BYTE* tmpSecondLevelDetChild = (BYTE*)malloc(sizeOfIndex * sizeof(BYTE));
-					secondLevelDetChild_file_ifs.read((char*)tmpSecondLevelDetChild, sizeOfIndex * sizeof(BYTE));
-					secondLevelDetChild.push_back(tmpSecondLevelDetChild);
-				}
+				unsigned int* tmpSecondLevelChildTab = (unsigned int*)malloc(sizeOfIndex * sizeof(unsigned int));
+				secondLevelChildTab_file_ifs.read((char*)tmpSecondLevelChildTab, sizeOfIndex * sizeof(unsigned int));
 
+				BYTE* tmpSecondLevelDetChild = (BYTE*)malloc(sizeOfIndex * sizeof(BYTE));
+				secondLevelDetChild_file_ifs.read((char*)tmpSecondLevelDetChild, sizeOfIndex * sizeof(BYTE));
+
+				secondLevelChromVector.push_back(new SecondLevelChromosome(
+					tmpSecondLevelChrom,
+					tmpSecondLevelSa,
+					tmpSecondLevelLcpCompress,
+					tmpSecondLevelChildTab,
+					tmpSecondLevelDetChild,
+					indexInfo));
 
 				secondLevelChrom_file_ifs.close();
 				secondLevelSA_file_ifs.close();
-				//if(!load2ndLevelIndexBool_compressedSize)
-				//{
-					secondLevelLcp_file_ifs.close();
-					secondLevelUp_file_ifs.close();
-					secondLevelDown_file_ifs.close();
-					secondLevelNext_file_ifs.close();
-				//}
-				//else
-				//{
-					secondLevelLcpCompress_file_ifs.close();
-					secondLevelChildTab_file_ifs.close();
-					secondLevelDetChild_file_ifs.close();					
-				//}				
+				secondLevelLcpCompress_file_ifs.close();
+				secondLevelChildTab_file_ifs.close();
+				secondLevelDetChild_file_ifs.close();
 
 				secondLevelIndexNO ++;
 
-			}
-			log_ofs << "finish loading 2nd-level index of " << indexInfo->chrNameStr[tmpChrNO] << endl; 
-		}
+			} // for(int tmpSecondLevelIndexNO = 1; tmpSecondLevelIndexNO <= (indexInfo->secondLevelIndexPartsNum)[tmpChrNO]; tmpSecondLevelIndexNO ++)
+
+			log_ofs << "finish loading 2nd-level index of " << indexInfo->chrNameStr[tmpChrNO] << endl;
+
+		} // for(int tmpChrNO = 0; tmpChrNO < indexInfo->chromNum; tmpChrNO ++)
+
 		log_ofs << "finish loading ALL 2nd-level index !" << endl;
 		log_ofs << indexInfo->getInvalidSecondLevelIndexNOstr() << endl;
-		//loadIndex_end = clock(); 
-	}
+
+	} // if(load2ndLevelIndexBool)
+
+	SecondLevelChromosomeList* secondLevelChroms = new SecondLevelChromosomeList(
+		secondLevelChromVector,
+		indexInfo);
 
 	nowtime = time(NULL);
-	//struct tm *local;
+
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... load 2nd level index ends ......" << endl << endl ; 		
-	log_ofs << endl << "[" << asctime(local) << "... load 2nd level index ends ......" << endl << endl ; 	
+	log_ofs << endl << "[" << asctime(local) << "... load 2nd level index ends ......" << endl << endl ;
+
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	//////////////////////////////////////   Do REMAPPING On one end unmapped Reads    ///////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... fixing oneEndUnmapped reads starts ......" << endl << endl ; 	 
 	log_ofs << endl << "[" << asctime(local) << "... fixing oneEndUnmapped reads starts ......" << endl << endl ; 
@@ -1071,18 +735,12 @@ int main(int argc, char**argv)
 	{
 		log_ofs << "start doing remapping on unmapped end reads" << endl;
 
-		string oneEndMappedFileStr = tmpAlignOneEndUnmapped;
-
-		ifstream inputRecord_ifs(oneEndMappedFileStr.c_str());
+		ifstream inputRecord_ifs(tmpAlignOneEndUnmapped.c_str());
 
 		string line1, line2, line3, line4, line5, line6, line7, 
 			line8, line9, line10, line11;
 		
 		int normalRecordNum = normalRecordNum_fixOneEndUnmapped; //1000000;
-
-		bool EndOfRecord = false;
-
-		int tmpTurn = 0;
 
 		int realRecordNum;// = normalRecordNum;
 
@@ -1099,20 +757,13 @@ int main(int argc, char**argv)
 		vector<string> peAlignInfoVec(normalRecordNum);
 		vector<string> peAlignSamVec(normalRecordNum);
 		vector<string> peAlignSamVec_unpair_complete(normalRecordNum);
-
 		vector<string> peAlignInfoVec_pair_complete(normalRecordNum);
 
-		//getline(inputRecord_ifs, line11);
-
-		for(tmpTurn = 0; /*tmpTurn < TurnNum*/; tmpTurn++)
+		bool endOfRecord = false;
+		while(!endOfRecord)
 		{
-			if(EndOfRecord)
-				break;
-
 			int recordNum = normalRecordNum;
 
-			//cout << "start to read record" << endl;
-			//cout << "start to input oneEndUnmapped records, turn: " << tmpTurn+1 << endl;
 			realRecordNum = normalRecordNum;
 
 			for(int recordNumTmp = 0; recordNumTmp < recordNum; recordNumTmp++)
@@ -1120,7 +771,7 @@ int main(int argc, char**argv)
 				if(inputRecord_ifs.eof())
 				{
 					realRecordNum = recordNumTmp;
-					EndOfRecord = true;
+					endOfRecord = true;
 					break;
 				}				
 				getline(inputRecord_ifs, line11);
@@ -1134,7 +785,6 @@ int main(int argc, char**argv)
 				getline(inputRecord_ifs, line8);
 				getline(inputRecord_ifs, line9);
 				getline(inputRecord_ifs, line10);
-				//getline(inputRecord_ifs, line11);
 
 				line1StrVec[recordNumTmp] = line1;
 				line2StrVec[recordNumTmp] = line2;
@@ -1148,61 +798,21 @@ int main(int argc, char**argv)
 				line10StrVec[recordNumTmp] = line10;
 
 			}	
-		
-			//cout << "realRecordNum: " << realRecordNum << " turn: " << tmpTurn+1 << endl;
 
-			//cout << "finish reading record, turn: " << tmpTurn+1 << endl;
-
-			//cout << "start to fix oneEndUnmapped, turn: " << tmpTurn+1 << endl;
-
-			omp_set_num_threads(threads_num);
-			//omp_set_num_threads(1);
 			#pragma omp parallel for
 			for(int tmpOpenMP = 0; tmpOpenMP < realRecordNum; tmpOpenMP++)
 			{
 				////////////////  parse long head reads record after 1-mapping process  ///////////////////////////////////////
 				tmpRecordNum_oneEndUnmapped ++;
-				//if(tmpRecordNum_oneEndUnmapped <= 2202658)
-				//	continue;
-				//cout << "recordNum: " << tmpRecordNum_oneEndUnmapped << endl;
 
-
-				PE_Read_Info* peReadInfo = new PE_Read_Info();
+				PairedEndRead* peReadInfo = new PairedEndRead();
 				PE_Read_Alignment_Info* peAlignInfo = new PE_Read_Alignment_Info();
 				peAlignInfo->generatePeReadInfoAndPeAlignInfo_Fasta_toFixOneEndUnmapped_getline(line1StrVec[tmpOpenMP], line2StrVec[tmpOpenMP], 
 					line4StrVec[tmpOpenMP], line5StrVec[tmpOpenMP],
 					line7StrVec[tmpOpenMP], line8StrVec[tmpOpenMP], //line9StrVec[tmpOpenMP],
 					line9StrVec[tmpOpenMP], line10StrVec[tmpOpenMP], peReadInfo);		
 
-				char* read = const_cast<char*>((peReadInfo->readInfo_pe1).readSeq.c_str());
-				char* read_PE = const_cast<char*>((peReadInfo->readInfo_pe2).readSeq.c_str());
-
- 		   		char read_RC_PE[(peReadInfo->readInfo_pe1).readSeqLength], read_RC[(peReadInfo->readInfo_pe2).readSeqLength];
-    			for(int read_RC_loc = 0; read_RC_loc < (peReadInfo->readInfo_pe1).readSeqLength; read_RC_loc++) // get read_RC
-    				*(read_RC + read_RC_loc) = reverseComplement(*(read + (peReadInfo->readInfo_pe1).readSeqLength - 1 - read_RC_loc)); 			
-    	 		for(int read_RC_loc = 0; read_RC_loc < (peReadInfo->readInfo_pe2).readSeqLength; read_RC_loc++) // get read_RC_PE
-    				*(read_RC_PE + read_RC_loc) = reverseComplement(*(read_PE + (peReadInfo->readInfo_pe2).readSeqLength - 1 - read_RC_loc)); 
-
-	    		string rcmReadSeq_1 = read_RC;
-    			(peReadInfo->readInfo_pe1).rcmReadSeq = rcmReadSeq_1.substr(0, (peReadInfo->readInfo_pe1).readSeqLength);
-
-	    		string rcmReadSeq_2 = read_RC_PE;
-    			(peReadInfo->readInfo_pe2).rcmReadSeq = rcmReadSeq_2.substr(0, (peReadInfo->readInfo_pe2).readSeqLength);
-
-
-				FixOneEndUnmappedInfo* fixOneEndUnmappedInfo = new FixOneEndUnmappedInfo();
-				fixOneEndUnmappedInfo->fixOneEndUnmapped(peReadInfo, peAlignInfo,
-					secondLevelChrom,
-					secondLevelSa,
-					secondLevelLcpCompress,
-					secondLevelChildTab,
-					secondLevelDetChild,
-					secondLevelLcp,
-					secondLevelUp,
-					secondLevelDown,
-					secondLevelNext, 
-					load2ndLevelIndexBool_compressedSize,
-					indexInfo);
+				fixOneEndUnmapped(peReadInfo, peAlignInfo, secondLevelChroms);
 
 				peAlignInfo->pairingAlignment();
 				peAlignInfo->chooseBestAlignment();
@@ -1214,29 +824,18 @@ int main(int argc, char**argv)
 				string tmpPeAlignSamStr, tmpPeAlignInfoStr, tmpPeAlignSamStr_unpair_complete, tmpPeAlignInfo_complete_pair;
 				if(pairExistsBool && allAlignmentCompleteBool) // some pair exists, all completed, print out paired SAM info
 				{
-					/*tmpPeAlignSamStr = peAlignInfo->getTmpPEreadAlignInfoInSAMformatForFinalPair(
-					 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);*/
-					tmpPeAlignSamStr = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(
-					 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);
+					tmpPeAlignSamStr = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(peReadInfo);
 					tmpPeAlignInfoStr = "";
 					tmpPeAlignSamStr_unpair_complete = "";
 					if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 					{
-						tmpPeAlignInfo_complete_pair = peAlignInfo->getTmpAlignInfoForFinalPair(
-						 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq,
-							(peReadInfo->readInfo_pe1).readQual, (peReadInfo->readInfo_pe2).readQual);
+						tmpPeAlignInfo_complete_pair = peAlignInfo->getTmpAlignInfoForFinalPair(peReadInfo);
 					}
 				}
 				else if(pairExistsBool && (!allAlignmentCompleteBool)) // pair exists, incomplete
 				{
 					tmpPeAlignSamStr = "";
-					tmpPeAlignInfoStr = peAlignInfo->getTmpAlignInfoForFinalPair(
-					 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq,
-						(peReadInfo->readInfo_pe1).readQual, (peReadInfo->readInfo_pe2).readQual);
+					tmpPeAlignInfoStr = peAlignInfo->getTmpAlignInfoForFinalPair(peReadInfo);
 					tmpPeAlignSamStr_unpair_complete = "";
 					if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 					{					
@@ -1245,18 +844,11 @@ int main(int argc, char**argv)
 				}
 				else if((!pairExistsBool) && (allUnpairedAlignmentCompleteBool)) // no pair exists, all complete, print out original SAM info
 				{
-
-					/*tmpPeAlignSamStr = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-						(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName,
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq );*/
 					tmpPeAlignSamStr = "";
 					tmpPeAlignInfoStr = "";
-					/*tmpPeAlignSamStr_unpair_complete = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-						(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName,
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq );*/
-					tmpPeAlignSamStr_unpair_complete = peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(
-						(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName,
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq );
+
+					tmpPeAlignSamStr_unpair_complete =
+						peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(peReadInfo);
 					if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 					{					
 						tmpPeAlignInfo_complete_pair = "";
@@ -1265,11 +857,7 @@ int main(int argc, char**argv)
 				else // no pair exists, incomplete, print out alignInfo
 				{
 					tmpPeAlignSamStr = "";
-					tmpPeAlignInfoStr = peAlignInfo->getTmpAlignInfo(
-						(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName,
-						(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq, 
-						//readQualSeq_1, readQualSeq_2
-						"*", "*");// << endl;
+					tmpPeAlignInfoStr = peAlignInfo->getTmpAlignInfo(peReadInfo);// << endl;
 					tmpPeAlignSamStr_unpair_complete = "";
 					if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 					{
@@ -1286,17 +874,13 @@ int main(int argc, char**argv)
 				{
 					peAlignInfoVec_pair_complete[tmpOpenMP] = tmpPeAlignInfo_complete_pair;
 				}
-				delete(peReadInfo);
-				peAlignInfo->memoryFree();
-				delete(peAlignInfo);
+				delete peReadInfo;
+				delete peAlignInfo;
 
 			}
-			//cout << "finish fixing oneEndUnmapped, turn: " << tmpTurn+1 << endl;// << endl;
-			//cout << "start to output ... turn: " << tmpTurn+1 << endl;
+
 			for(int tmp = 0; tmp < realRecordNum; tmp++)
 			{
-				//if((peAlignSamVec[tmp].length() == 0)||( peAlignInfoVec[tmp].length() == 0))
-				//	continue;
 				if(peAlignSamVec[tmp] != "")
 				{
 					OutputSamFile_oneEndMapped_ofs << peAlignSamVec[tmp] << endl;
@@ -1319,8 +903,6 @@ int main(int argc, char**argv)
 					}
 				}
 			}		
-			//cout << "finish output, turn: " << tmpTurn+1 << endl << endl;
-
 		}		
 		inputRecord_ifs.close();
 	}
@@ -1328,10 +910,8 @@ int main(int argc, char**argv)
 	OutputSamFile_oneEndMapped_ofs.close();
 	OutputSamFile_oneEndMapped_unpairComplete_ofs.close();
 	tmpAlignIncompletePair_ofs.close();
-	//tmpAlignInfoForDebugFile_oneEndMapped_ofs.close();
 
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... fixing oneEndUnmapped reads ends ......" << endl << endl ;  
 	log_ofs << endl << "[" << asctime(local) << "... fixing oneEndUnmapped reads ends ......" << endl << endl ; 
@@ -1340,7 +920,6 @@ int main(int argc, char**argv)
 	//////////////////////////////////////   Sam 2 Junc   ///////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... Sam 2 Junc starts ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... Sam 2 Junc starts ......" << endl << endl; 
@@ -1369,10 +948,8 @@ int main(int argc, char**argv)
 		Covert2JuncComb(juncfile.c_str(), comb_mapreads_files, read_width, chrom_dir, max_rank, min_intron, max_intron, min_anchor);
 
 	}
-	//string juncInsFile = juncfile.append("ins");
 
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... Sam 2 Junc ends ......" << endl << endl; 
 	log_ofs << endl << "[" << asctime(local) << "... Sam 2 Junc ends ......" << endl << endl; 
@@ -1381,7 +958,6 @@ int main(int argc, char**argv)
 	//////////////////////////////////////   Do REMAPPING On unfixed head/tail Reads    ///////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... fixing unfixed-head/tail reads starts ......" << endl << endl ;  
 	log_ofs << endl << "[" << asctime(local) << "... fixing unfixed-head/tail reads starts ......" << endl << endl ; 
@@ -1403,14 +979,13 @@ int main(int argc, char**argv)
 	string OutputSamFile_fixHeadTail_incomplete_pair_alignInfo = testClassFileStr + ".fixHeadTail_incomplete_pair.sam_alignInfo";
 	ofstream OutputSamFile_fixHeadTail_incomplete_pair_alignInfo_ofs(OutputSamFile_fixHeadTail_incomplete_pair_alignInfo.c_str());	
 
-
 	string OutputSamFile_fixHeadTail_complete_unpair = testClassFileStr + ".fixHeadTail_complete_unpair.sam";
 	ofstream OutputSamFile_fixHeadTail_complete_unpair_ofs(OutputSamFile_fixHeadTail_complete_unpair.c_str());
 
 	string OutputSamFile_fixHeadTail_incomplete_unpair = testClassFileStr + ".fixHeadTail_incomplete_unpair.sam";
 	ofstream OutputSamFile_fixHeadTail_incomplete_unpair_ofs(OutputSamFile_fixHeadTail_incomplete_unpair.c_str());	
 
-	SJhash_Info* SJ = new SJhash_Info();
+	SpliceJunctionHash* SJ = new SpliceJunctionHash();
 	if(DoRemappingOnUnfixedHeadTailAlignmentBool)
 	{
     	log_ofs << "start to build spliceJunction Hash" << endl;
@@ -1427,17 +1002,7 @@ int main(int argc, char**argv)
 		string spliceStartPosString;
 		string spliceEndPosString;
 
-		//SJhash_Info SJ;
-		
-		/////////////////////////////////////////////////////////////////////////////
-		///////////////////// position Hash  ////////////////////////////////////////
-		/////////////////////////////////////////////////////////////////////////////
-		//SJ->initiateSJintHash(indexInfo->chromNum);
-		/////////////////////////////////////////////////////////////////////////////
-		//////////////////////  string hash /////////////////////////////////////////
-		/////////////////////////////////////////////////////////////////////////////
-		SJ->initiateAreaAndStringHash(indexInfo->chromNum);
-
+		SJ->initiateSJintHash(indexInfo->chromNum);
 
 		fgets(entry, sizeof(entry), fp_spliceJunction);
 		while(!feof(fp_spliceJunction))
@@ -1446,7 +1011,7 @@ int main(int argc, char**argv)
 			if(feof(fp_spliceJunction))
 				break;
 			junctionNum ++;
-			//cout << "entryString: " << entryString << endl;
+
 			entryString = entry;
 			tabLocation1 = entryString.find('\t', 0);
 			tabLocation2 = entryString.find('\t', tabLocation1+1);
@@ -1458,17 +1023,8 @@ int main(int argc, char**argv)
 			spliceStartPos = atoi(spliceStartPosString.c_str());
 			spliceEndPos = atoi(spliceEndPosString.c_str());
 
-			///////////////////////////////////////////////////////////////////////////
-			//////////// position Hash  ///////////////////////////////////////////////
-			///////////////////////////////////////////////////////////////////////////
-			//SJ->insert2SJintHash(chrInt, spliceStartPos, spliceEndPos);
-			///////////////////////////////////////////////////////////////////////////
-			////////////  string hash /////////////////////////////////////////////////
-			///////////////////////////////////////////////////////////////////////////			
-			SJ->insert2AreaAndStringHash(chrInt, spliceStartPos, spliceEndPos, indexInfo);
-		
+			SJ->insert2SJintHash(chrInt, spliceStartPos, spliceEndPos);
 		}
-
 		fclose(fp_spliceJunction);
 
 		if(junctionNum == 0)
@@ -1482,17 +1038,12 @@ int main(int argc, char**argv)
 		log_ofs << "start doing remapping on unfixed head/tail alignments" << endl;
 
 		string headTailSoftClippingFile = tmpAlignIncompletePair;
-		//FILE *fp_HeadTail = fopen(headTailSoftClippingFile.c_str(), "r");
 		ifstream inputUnfixedHeadTailRecord_ifs(headTailSoftClippingFile.c_str());
 
 		string line1, line2, line3, line4, line5, line6, line7, 
 			line8, line9, line10, line11;
 
 		int normalRecordNum = normalRecordNum_fixHeadTail; //1000000;
-
-		bool EndOfRecord = false;
-
-		int tmpTurn = 0;
 
 		int realRecordNum;// = normalRecordNum;
 
@@ -1506,23 +1057,17 @@ int main(int argc, char**argv)
 		vector<string> line8StrVec(normalRecordNum);
 		vector<string> line9StrVec(normalRecordNum);
 		vector<string> line10StrVec(normalRecordNum);
-		//vector<string> peAlignInfoVec(normalRecordNum);
 		vector<string> peAlignSamVec_complete_pair(normalRecordNum);
 		vector<string> peAlignSamVec_incomplete_pair(normalRecordNum);
 		vector<string> peAlignSamVec_complete_unpair(normalRecordNum);
 		vector<string> peAlignSamVec_incomplete_unpair(normalRecordNum);
 
 		vector<string> peAlignSamVec_complete_pair_alignInfo(normalRecordNum);
-		vector<string> peAlignSamVec_incomplete_pair_alignInfo(normalRecordNum);		
-		//vector<string> peAlignSamVec_incomplete_unpair(normalRecordNum);
+		vector<string> peAlignSamVec_incomplete_pair_alignInfo(normalRecordNum);
 
-		//getline(inputUnfixedHeadTailRecord_ifs, line11);
-
-		for(tmpTurn = 0; /*tmpTurn < TurnNum*/; tmpTurn++)
+		bool endOfRecord = false;
+		while(!endOfRecord)
 		{
-			if(EndOfRecord)
-				break;
-
 			int recordNum = normalRecordNum;
 
 			//cout << "start to read long-head file record" << endl;
@@ -1535,7 +1080,7 @@ int main(int argc, char**argv)
 				if(inputUnfixedHeadTailRecord_ifs.eof())
 				{
 					realRecordNum = recordNumTmp;
-					EndOfRecord = true;
+					endOfRecord = true;
 					break;
 				}				
 
@@ -1550,7 +1095,6 @@ int main(int argc, char**argv)
 				getline(inputUnfixedHeadTailRecord_ifs, line8);
 				getline(inputUnfixedHeadTailRecord_ifs, line9);
 				getline(inputUnfixedHeadTailRecord_ifs, line10);
-				//getline(inputUnfixedHeadTailRecord_ifs, line11);
 
 				line1StrVec[recordNumTmp] = line1;
 				line2StrVec[recordNumTmp] = line2;
@@ -1563,41 +1107,21 @@ int main(int argc, char**argv)
 				line9StrVec[recordNumTmp] = line9;
 				line10StrVec[recordNumTmp] = line10;
 			}	
-		
-			//cout << "realRecordNum: " << realRecordNum << " turn: " << tmpTurn+1 << endl;
 
-			//cout << "finish reading Head/Tail records file, turn: " << tmpTurn+1 << endl;
-
-			//cout << "start to fix Head/Tail, turn: " << tmpTurn+1 << endl;
-
-			omp_set_num_threads(threads_num);
-			//omp_set_num_threads(1);
 			#pragma omp parallel for
 			for(int tmpOpenMP = 0; tmpOpenMP < realRecordNum; tmpOpenMP++)
 			{
 				////////////////  parse long head reads record after 1-mapping process  ///////////////////////////////////////
 
-				PE_Read_Info* peReadInfo = new PE_Read_Info();
+				PairedEndRead* peReadInfo = new PairedEndRead();
 				PE_Read_Alignment_Info* peAlignInfo = new PE_Read_Alignment_Info();
 				peAlignInfo->generatePeReadInfoAndPeAlignInfo_Fasta_toFixIncompleteAlignment_getline(line1StrVec[tmpOpenMP], line2StrVec[tmpOpenMP], 
 					line4StrVec[tmpOpenMP], line5StrVec[tmpOpenMP],
 					line7StrVec[tmpOpenMP], line8StrVec[tmpOpenMP], //line9StrVec[tmpOpenMP],
 					line9StrVec[tmpOpenMP], line10StrVec[tmpOpenMP], peReadInfo);		
 
-				FixHeadTailInfo* fixHeadTailInfo = new FixHeadTailInfo();
-				fixHeadTailInfo->fixHeadTail_areaAndStringHash(peReadInfo, peAlignInfo, SJ, 
-					secondLevelChrom,
-					secondLevelSa,
-					secondLevelLcpCompress,
-					secondLevelChildTab,
-					secondLevelDetChild,
-					secondLevelLcp,
-					secondLevelUp,
-					secondLevelDown,
-					secondLevelNext, 
-					load2ndLevelIndexBool_compressedSize,
-					spliceJunctionHashExists,
-					indexInfo);	
+				fixHeadTail_areaAndStringHash(peReadInfo, peAlignInfo, SJ,
+					secondLevelChroms, spliceJunctionHashExists);
 
 				peAlignInfo->pairingAlignment();
 				peAlignInfo->chooseBestAlignment();
@@ -1614,12 +1138,7 @@ int main(int argc, char**argv)
 					bool allFinalPairAlignmentCompleteBool = peAlignInfo->allAlignmentInFinalPairCompleted();	
 					if(allFinalPairAlignmentCompleteBool)
 					{
-						/*tmpPeAlignSamStr_complete_pair = peAlignInfo->getTmpPEreadAlignInfoInSAMformatForFinalPair(
-						 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);*/
-						tmpPeAlignSamStr_complete_pair = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(
-						 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);						
+						tmpPeAlignSamStr_complete_pair = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(peReadInfo);
 						tmpPeAlignSamStr_incomplete_pair = "";
 						
 						tmpPeAlignSamStr_complete_unpair = "";
@@ -1627,10 +1146,8 @@ int main(int argc, char**argv)
 						tmpPeAlignSamStr_incomplete_unpair = "";
 						if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 						{
-							tmpPeAlignSamStr_complete_pair_alignInfo = peAlignInfo->getTmpAlignInfoForFinalPair(
-						 		(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-								(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq,
-								(peReadInfo->readInfo_pe1).readQual, (peReadInfo->readInfo_pe2).readQual);
+							tmpPeAlignSamStr_complete_pair_alignInfo =
+								peAlignInfo->getTmpAlignInfoForFinalPair(peReadInfo);
 							tmpPeAlignSamStr_incomplete_pair_alignInfo = "";
 						}
 					}
@@ -1638,12 +1155,7 @@ int main(int argc, char**argv)
 					{
 						tmpPeAlignSamStr_complete_pair = "";
 						
-						/*tmpPeAlignSamStr_incomplete_pair = peAlignInfo->getTmpPEreadAlignInfoInSAMformatForFinalPair(
-						 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);*/
-						tmpPeAlignSamStr_incomplete_pair = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(
-						 	(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);
+						tmpPeAlignSamStr_incomplete_pair = peAlignInfo->getSAMformatForFinalPair_secondaryOrNot(peReadInfo);
 						tmpPeAlignSamStr_complete_unpair = "";
 						
 						tmpPeAlignSamStr_incomplete_unpair = "";
@@ -1651,10 +1163,8 @@ int main(int argc, char**argv)
 						if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 						{
 							tmpPeAlignSamStr_complete_pair_alignInfo = "";
-							tmpPeAlignSamStr_incomplete_pair_alignInfo = peAlignInfo->getTmpAlignInfoForFinalPair(
-						 		(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-								(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq,
-								(peReadInfo->readInfo_pe1).readQual, (peReadInfo->readInfo_pe2).readQual);
+							tmpPeAlignSamStr_incomplete_pair_alignInfo =
+								peAlignInfo->getTmpAlignInfoForFinalPair(peReadInfo);
 						}						
 					}
 				}
@@ -1667,14 +1177,9 @@ int main(int argc, char**argv)
 						tmpPeAlignSamStr_complete_pair = "";
 
 						tmpPeAlignSamStr_incomplete_pair = "";
-						
-						/*tmpPeAlignSamStr_complete_unpair = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-				 			(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);*/
 
-						tmpPeAlignSamStr_complete_unpair = peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(
-				 			(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);
+						tmpPeAlignSamStr_complete_unpair =
+							peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(peReadInfo);
 
 						tmpPeAlignSamStr_incomplete_unpair = "";	
 
@@ -1692,22 +1197,14 @@ int main(int argc, char**argv)
 						
 						tmpPeAlignSamStr_complete_unpair = "";
 
-						/*tmpPeAlignSamStr_incomplete_unpair = peAlignInfo->getTmpPEreadAlignInfoInSAMformat(
-				 			(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);*/				
-
-						tmpPeAlignSamStr_incomplete_unpair = peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(
-				 			(peReadInfo->readInfo_pe1).readName, (peReadInfo->readInfo_pe2).readName, 
-							(peReadInfo->readInfo_pe1).readSeq, (peReadInfo->readInfo_pe2).readSeq);	
+						tmpPeAlignSamStr_incomplete_unpair =
+							peAlignInfo->getSAMformatForUnpairedAlignments_secondaryOrNot(peReadInfo);
 						if(outputAlignInfoAndSamForAllPairedAlignmentBool)
 						{
 							tmpPeAlignSamStr_complete_pair_alignInfo = "";
 							tmpPeAlignSamStr_incomplete_pair_alignInfo = "";
 						}
 					}
-
-
-					//tmpPeAlignSamStr_incomplete_unpair = "";
 				}
 
 				peAlignSamVec_complete_pair[tmpOpenMP] = tmpPeAlignSamStr_complete_pair;
@@ -1722,16 +1219,11 @@ int main(int argc, char**argv)
 					
 					peAlignSamVec_incomplete_pair_alignInfo[tmpOpenMP] = tmpPeAlignSamStr_incomplete_pair_alignInfo;
 				}
-				//peAlignSamVec_incomplete_unpair[tmpOpenMP] = tmpPeAlignSamStr_incomplete_unpair;
 
-				peAlignInfo->memoryFree();
-				delete(peReadInfo);
-				delete(peAlignInfo);
-
+				delete peReadInfo;
+				delete peAlignInfo;
 			}
-			//cout << "finish fixing Head/Tail, turn: " << tmpTurn+1 << endl;// << endl;
 
-			//cout << "start to output ... turn: " << tmpTurn+1 << endl;
 			for(int tmp = 0; tmp < realRecordNum; tmp++)
 			{
 				if(peAlignSamVec_complete_pair[tmp] != "")
@@ -1763,12 +1255,10 @@ int main(int argc, char**argv)
 						OutputSamFile_fixHeadTail_incomplete_pair_alignInfo_ofs << peAlignSamVec_incomplete_pair_alignInfo[tmp] << endl;					
 				}
 			}		
-			//cout << "finish output, turn: " << tmpTurn+1 << endl << endl;
-
 		}
 		inputUnfixedHeadTailRecord_ifs.close();
 	}
-	delete(SJ);
+	delete SJ;
 
 	OutputSamFile_fixHeadTail_complete_pair_ofs.close();
 	OutputSamFile_fixHeadTail_incomplete_pair_ofs.close();
@@ -1778,7 +1268,6 @@ int main(int argc, char**argv)
 	OutputSamFile_fixHeadTail_incomplete_pair_alignInfo_ofs.close();
 
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 
 
@@ -1789,17 +1278,9 @@ int main(int argc, char**argv)
 	{
 		cout << "readTotalNum: " << readTotalNum << endl;		
 		log_ofs << "readTotalNum: " << readTotalNum << endl;
-
-		cout << endl << "PairedReadNum: " << PairedReadNum << " " << ((double)(PairedReadNum)/((double)readTotalNum)) * 100 << endl ;  
-		log_ofs << endl << "PairedReadNum: " << PairedReadNum << " " << ((double)(PairedReadNum)/((double)readTotalNum)) * 100 << endl ;  
-		cout << endl << "UnpairedReadNum: " << UnpairedReadNum << " " << ((double)(UnpairedReadNum)/((double)readTotalNum)) * 100 << endl ;  
-		log_ofs << endl << "UnpairedReadNum: " << UnpairedReadNum << " " << ((double)(UnpairedReadNum)/((double)readTotalNum)) * 100 << endl ;  
-		cout << endl << "BothEndsUnmappedReadNum: " << BothUnmappedReadNum << " " << ((double)(BothUnmappedReadNum)/((double)readTotalNum)) * 100 << endl ;  
-		log_ofs << endl << "BothEndsUnmappedReadNum: " << BothUnmappedReadNum << " " << ((double)(BothUnmappedReadNum)/((double)readTotalNum)) * 100 << endl ;  
 	}			
 
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... start to prepare for final output files ......" << endl << endl ;  
 	log_ofs << endl << "[" << asctime(local) << "... start to prepare for final output files ......" << endl << endl ;  
@@ -1807,8 +1288,7 @@ int main(int argc, char**argv)
 	string finalOutputSam = testClassFileStr;
 	if(Do_Phase1_Only)
 	{
-		string cat_cmd = "cat " + tmpAlignCompleteRead  
-			//+ " " + tmpAlignOneEndUnmapped
+		string cat_cmd = "cat " + tmpAlignCompleteRead
 			+ " " + tmpAlignIncompletePair_SAM 
 			+ " " + tmpAlignOneEndUnmapped
 			+ " " + tmpAlignBothEndsUnmapped
@@ -1851,13 +1331,672 @@ int main(int argc, char**argv)
 		remove(OutputSamFile_oneEndMapped_alignInfo.c_str());
 		remove(tmpAlignCompleteRead.c_str());
 	}
-	delete(indexInfo);
 
 	nowtime = time(NULL);
-	//struct tm *local;
 	local = localtime(&nowtime);
 	cout << endl << "[" << asctime(local) << "... all jobs done ......" << endl << endl ;  
 	log_ofs << endl << "[" << asctime(local) << "... all jobs done ......" << endl << endl ;  
 
     return 0;
 } //end main
+
+void fixHeadTail_areaAndStringHash(PairedEndRead* peReadInfo, PE_Read_Alignment_Info* peAlignInfo,
+	SpliceJunctionHash* SJ, SecondLevelChromosomeList* secondLevelChromosomeList, bool spliceJunctionHashExists)
+{
+	Alignment_Info* tmpAlignmentInfo;
+
+	//Read currentRead;
+
+	/* FIXME - THIS NEEDS TO BE REWORKED
+	 * 5/28/14 KLM
+	//////////////////// fix head //////////////////////////////
+	//cout << "start to fix head" << endl;
+	for(int i = 1; i <= 4; i++)
+	{
+		currentRead = i <= 2
+			? peReadInfo->firstPairedEndRead
+			: peReadInfo->secondPairedEndRead;
+
+		for(int tmpAlignmentNO = 0; tmpAlignmentNO < (peAlignInfo->fixHeadTail_getAlignInfoVecSize(tmpAlignInfoType));
+			tmpAlignmentNO++)
+		{
+			tmpAlignmentInfo = (peAlignInfo->fixHeadTail_getAlignInfo(tmpAlignInfoType, tmpAlignmentNO));
+			if( (tmpAlignmentInfo->cigarStringJumpCode)[0].type != "S" )
+			{
+				//cout << "no unfixed head !" << endl;
+				continue;
+			}
+
+			Unfixed_Head unfixedHeadInfo;
+			unfixedHeadInfo.getUnfixedHeadInfoFromRecordWithAlignInfoType(peReadInfo, tmpAlignInfoType, tmpAlignmentInfo, indexInfo);
+
+			//cout << "finish getUnfixedTailInfoFromRecord ..." << endl;
+
+			string readSeqWithDirection = unfixedHeadInfo.alignDirection == "+"
+				? unfixedHeadInfo.readSeqOriginal
+				: covertStringToReverseComplement(unfixedHeadInfo.readSeqOriginal);
+
+			///////////////////////////////////////////////////////////////////////////////////////////
+			/////////////////////////  try remapping with splice junction hash ////////////////////////
+			///////////////////////////////////////////////////////////////////////////////////////////
+			//cout << "start SJsearchInSJhash !" << endl;
+			bool spliceJunctionFoundInHash;
+
+			if(spliceJunctionHashExists)
+			{
+				/////////////////////////////////////////////////////////////////////////////
+				////////////////////////     position hash     //////////////////////////////
+				/////////////////////////////////////////////////////////////////////////////
+				//spliceJunctionFoundInHash
+				//	= unfixedHeadInfo.SJsearchInSJhash(SJ, readSeqWithDirection, indexInfo);
+				/////////////////////////////////////////////////////////////////////////////
+				////////////////////////      string hash      //////////////////////////////
+				/////////////////////////////////////////////////////////////////////////////
+				spliceJunctionFoundInHash
+					= unfixedHeadInfo.SJsearchInSJhash_areaStringHash(SJ, readSeqWithDirection, indexInfo, SJ->areaSize);
+			}
+			else
+			{
+				spliceJunctionFoundInHash = false;
+			}
+			//cout << "spliceJunctionFoundInHash: " << spliceJunctionFoundInHash << endl;
+
+			if(spliceJunctionFoundInHash)
+			{
+
+				int tmpDonerEndPosInRead = (unfixedHeadInfo.SJposFromRemappingVec)[0].first;
+				int tmpSpliceJunctionDistance = (unfixedHeadInfo.SJposFromRemappingVec)[0].second;
+				int tmpFirstMatchLength = tmpDonerEndPosInRead;
+
+				int newMismatchToAddInHead = (unfixedHeadInfo.SJposFromRemappingVec_mismatch)[0];
+
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+					tmpFirstMatchLength, tmpSpliceJunctionDistance, indexInfo, newMismatchToAddInHead);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+
+				for(int tmpSJposVec = 1; tmpSJposVec < (unfixedHeadInfo.SJposFromRemappingVec).size(); tmpSJposVec++)
+				{
+					tmpDonerEndPosInRead = (unfixedHeadInfo.SJposFromRemappingVec)[tmpSJposVec].first;
+					tmpSpliceJunctionDistance = (unfixedHeadInfo.SJposFromRemappingVec)[tmpSJposVec].second;
+					tmpFirstMatchLength = tmpDonerEndPosInRead;
+
+					int tmpNewMismatchToAddInHead = (unfixedHeadInfo.SJposFromRemappingVec_mismatch)[tmpSJposVec];
+
+					Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+					newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+						tmpFirstMatchLength, tmpSpliceJunctionDistance, indexInfo, tmpNewMismatchToAddInHead);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+				continue;
+			}
+
+			///////////////////////////////////////////////////////////////////////////////////////////
+			///////////////////////// remapping with splice junction hash failed //////////////////////
+			///////////////////////////////////////////////////////////////////////////////////////////
+			//cout << "start to getPossibleSJpos " << endl;
+			unfixedHeadInfo.getPossibleSJpos(readSeqWithDirection, indexInfo);
+			//cout << "finish getting Possible SJ pos" << endl;
+			///////////////////////////////////////////////////////////////////////////////////////////
+			///////////////////////////////   check possible SJs    ///////////////////////////////////
+			//cout << "unfixedHeadInfo.midPartMapPosInChr: " << unfixedHeadInfo.midPartMapPosInChr << endl;
+			int midPartMapPosSecondLevelIndexNO
+				= indexInfo->getSecondLevelIndexFromChrAndPos(unfixedHeadInfo.midPartMapChrInt,
+					unfixedHeadInfo.midPartMapPosInChr);
+			midPartMapPosSecondLevelIndexNO --;
+
+			//cout << "2ndLevel Index: " << midPartMapPosSecondLevelIndexNO << endl;
+
+			if(
+				((indexInfo->invalidSecondLevelIndexNOset).find(midPartMapPosSecondLevelIndexNO+1))
+				!= (indexInfo->invalidSecondLevelIndexNOset).end()
+				)
+			{
+				//delete(seg2ndOriInfo);
+				//delete(unmapEndInfo);
+				continue;
+			}
+
+			//cout << "2ndLevel Index: " << midPartMapPosSecondLevelIndexNO << endl;
+			unsigned int midPartMapPosForLongHeadInSecondLevelIndex = unfixedHeadInfo.midPartMapPosInChr -
+				((unfixedHeadInfo.midPartMapPosInChr)/(indexInfo->secondLevelIndexNormalSize))*(indexInfo->secondLevelIndexNormalSize);
+
+			//   check GTAG splice junctions
+			//cout << "unfixedHeadInfo.possiGTAGpos.size(): " << (unfixedHeadInfo.possiGTAGpos).size() << endl;
+			for(int tmp = 0; tmp < (unfixedHeadInfo.possiGTAGpos).size(); tmp++)
+			{
+				int tmpSJposInRead = unfixedHeadInfo.possiGTAGpos[tmp];
+
+				if(tmpSJposInRead-1 < min_anchor_length)
+					continue;
+
+				string tmpShortAnchorStr = readSeqWithDirection.substr(0, tmpSJposInRead-1);
+				string targetMappingStr = tmpShortAnchorStr + "GT";
+				//cout << "headLength: " << tmpSJposInRead-1 << " targetStr: " << targetMappingStr << endl;
+				char* headChar = const_cast<char*>(targetMappingStr.c_str());
+				int targetMappingNum = 0;
+				unsigned int targetMappingLoc[100];
+
+				unsigned int finalMidPartMappingPos
+					= unfixedHeadInfo.midPartMapPosInWholeGenome + tmpSJposInRead - unfixedHeadInfo.unfixedHeadLength - 1;
+				bool headSegMapMain = mapMainSecondLevelForTargetMapping_compressedIndex(headChar,
+					secondLevelSa[midPartMapPosSecondLevelIndexNO],
+					secondLevelLcpCompress[midPartMapPosSecondLevelIndexNO],
+					secondLevelChildTab[midPartMapPosSecondLevelIndexNO],
+					secondLevelDetChild[midPartMapPosSecondLevelIndexNO],
+					secondLevelChrom[midPartMapPosSecondLevelIndexNO],
+					targetMappingStr.length(), 3000000, unfixedHeadInfo.midPartMapPosInWholeGenome,
+					midPartMapPosForLongHeadInSecondLevelIndex, &targetMappingNum, targetMappingLoc,
+					indexInfo);
+
+				//cout << "headSegMapMain: " << headSegMapMain << endl;
+
+				if(headSegMapMain)
+				{
+					int tmpMinSpliceDistance = 300001;
+					for(int tmp2 = 0; tmp2 < targetMappingNum; tmp2++)
+					{
+						int tmpSpliceDistance = finalMidPartMappingPos - (targetMappingLoc[tmp2] + unfixedHeadInfo.possiGTAGpos[tmp] - 2) - 1;
+						if((tmpSpliceDistance < 300000)
+							&& (tmpSpliceDistance > -4))
+						{
+							if(tmpSpliceDistance < tmpMinSpliceDistance)
+								tmpMinSpliceDistance = tmpSpliceDistance;
+						}
+					}
+					if(tmpMinSpliceDistance < 300000)
+					{
+						(unfixedHeadInfo.GTAGsjPos).push_back(pair<int,int>(unfixedHeadInfo.possiGTAGpos[tmp], tmpMinSpliceDistance));
+						(unfixedHeadInfo.GTAGsjPos_mismatch).push_back(unfixedHeadInfo.possiGTAGpos_mismatch[tmp]);
+					}
+				}
+
+			}
+			//   check CTAC splice junctions
+			//cout << "unfixedHeadInfo.possiCTACpos.size(): " << (unfixedHeadInfo.possiCTACpos).size() << endl;
+			for(int tmp = 0; tmp < (unfixedHeadInfo.possiCTACpos).size(); tmp++)
+			{
+				int tmpSJposInRead = unfixedHeadInfo.possiCTACpos[tmp];
+
+				if(tmpSJposInRead-1 < min_anchor_length)
+					continue;
+
+				string tmpShortAnchorStr = readSeqWithDirection.substr(0, tmpSJposInRead-1);
+				string targetMappingStr = tmpShortAnchorStr + "CT";
+				//cout << "headLength: " << tmpSJposInRead-1 << " targetStr: " << targetMappingStr << endl;
+				char* headChar = const_cast<char*>(targetMappingStr.c_str());
+				int targetMappingNum = 0;
+				unsigned int targetMappingLoc[100];
+
+				unsigned int finalMidPartMappingPos
+					= unfixedHeadInfo.midPartMapPosInWholeGenome + tmpSJposInRead - unfixedHeadInfo.unfixedHeadLength - 1;
+
+
+				bool headSegMapMain = mapMainSecondLevelForTargetMapping_compressedIndex(headChar,
+					secondLevelSa[midPartMapPosSecondLevelIndexNO],
+					secondLevelLcpCompress[midPartMapPosSecondLevelIndexNO],
+					secondLevelChildTab[midPartMapPosSecondLevelIndexNO],
+					secondLevelDetChild[midPartMapPosSecondLevelIndexNO],
+					secondLevelChrom[midPartMapPosSecondLevelIndexNO],
+					targetMappingStr.length(), 3000000, unfixedHeadInfo.midPartMapPosInWholeGenome,
+					midPartMapPosForLongHeadInSecondLevelIndex, &targetMappingNum, targetMappingLoc,
+					indexInfo
+					);
+
+				if(headSegMapMain)
+				{
+					int tmpMinSpliceDistance = 300001;
+					for(int tmp2 = 0; tmp2 < targetMappingNum; tmp2++)
+					{
+						int tmpSpliceDistance = finalMidPartMappingPos - (targetMappingLoc[tmp2] + unfixedHeadInfo.possiCTACpos[tmp] - 2) - 1;
+						if((tmpSpliceDistance < 300000)
+							&& (tmpSpliceDistance > -4))
+						{
+							if(tmpSpliceDistance < tmpMinSpliceDistance)
+								tmpMinSpliceDistance = tmpSpliceDistance;
+						}
+					}
+					if(tmpMinSpliceDistance < 300000)
+					{
+						(unfixedHeadInfo.CTACsjPos).push_back(pair<int,int>(unfixedHeadInfo.possiCTACpos[tmp], tmpMinSpliceDistance));
+						(unfixedHeadInfo.CTACsjPos_mismatch).push_back(unfixedHeadInfo.possiCTACpos_mismatch[tmp]);
+					}
+				}
+
+			}
+			//cout << "unfixedHeadInfo.GTAGsjPos.size(): " << (unfixedHeadInfo.GTAGsjPos).size() << endl;
+			if((unfixedHeadInfo.GTAGsjPos).size() > 0)
+			{
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+
+				int tmpNewMismatchToAddInHead = unfixedHeadInfo.GTAGsjPos_mismatch[0];
+
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+					(unfixedHeadInfo.GTAGsjPos[0]).first - 1, (unfixedHeadInfo.GTAGsjPos[0]).second, indexInfo, tmpNewMismatchToAddInHead);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+
+
+				for(int tmp = 1; tmp < (unfixedHeadInfo.GTAGsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInHead = unfixedHeadInfo.GTAGsjPos_mismatch[tmp]; //0;
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+						(unfixedHeadInfo.GTAGsjPos[tmp]).first - 1, (unfixedHeadInfo.GTAGsjPos[tmp]).second, indexInfo, tmpNewMismatchToAddInHead);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+
+				for(int tmp = 0; tmp < (unfixedHeadInfo.CTACsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInHead = unfixedHeadInfo.CTACsjPos_mismatch[tmp]; //0;
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+						(unfixedHeadInfo.CTACsjPos[tmp]).first - 1, (unfixedHeadInfo.CTACsjPos[tmp]).second, indexInfo, tmpNewMismatchToAddInHead);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+			}
+			else if((unfixedHeadInfo.CTACsjPos).size() > 0)
+			{
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+
+				int tmpNewMismatchToAddInHead = unfixedHeadInfo.CTACsjPos_mismatch[0]; //0;
+
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+					(unfixedHeadInfo.CTACsjPos[0]).first - 1, (unfixedHeadInfo.CTACsjPos[0]).second, indexInfo, tmpNewMismatchToAddInHead);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+
+				for(int tmp = 1; tmp < (unfixedHeadInfo.CTACsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInHead = unfixedHeadInfo.CTACsjPos_mismatch[tmp];
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddHeadInfo2SoftClippingAlignment(
+						(unfixedHeadInfo.CTACsjPos[tmp]).first - 1, (unfixedHeadInfo.CTACsjPos[tmp]).second, indexInfo, tmpNewMismatchToAddInHead);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+			}
+			else
+			{}
+
+		}
+	}
+	//cout << "start to fix tail " << endl;
+	/////////////////// fix tail //////////////////////////////
+	for(int tmpAlignInfoType = 1; tmpAlignInfoType <= 4; tmpAlignInfoType++)
+	{
+		//cout << "tmpAlignInfoType: " << tmpAlignInfoType << endl;
+		if(tmpAlignInfoType <= 2)
+		{
+			readLength = readLength_1;
+		}
+		else
+		{
+			readLength = readLength_2;
+		}
+		//cout << "readLength: " << readLength << endl;
+		for(int tmpAlignmentNO = 0; tmpAlignmentNO < (peAlignInfo->fixHeadTail_getAlignInfoVecSize(tmpAlignInfoType));
+			tmpAlignmentNO++)
+		{
+			//cout << "tmpAlignmentNO: " << tmpAlignmentNO << endl;
+			//tmpAlignmentInfo = (peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO];
+			tmpAlignmentInfo = (peAlignInfo->fixHeadTail_getAlignInfo(tmpAlignInfoType, tmpAlignmentNO));
+			int cigarStringJumpCodeSize = (tmpAlignmentInfo->cigarStringJumpCode).size();
+			if( (tmpAlignmentInfo->cigarStringJumpCode)[cigarStringJumpCodeSize-1].type != "S" )
+			{
+				//cout << "no unfixedTail !" << endl;
+				continue;
+			}
+
+			//cout << "start to getUnfixedTailInfoFromRecordWithAlignInfoType !" << endl;
+			Unfixed_Tail unfixedTailInfo;
+			//unfixedTailInfo.getUnfixedTailInfoFromRecord(peReadInfo, true, tmpAlignmentInfo, indexInfo);
+			unfixedTailInfo.getUnfixedTailInfoFromRecordWithAlignInfoType(peReadInfo, tmpAlignInfoType, tmpAlignmentInfo, indexInfo);
+			//cout << "finish getUnfixedTailInfoFromRecordWithAlignInfoType !" << endl;
+			string readSeqWithDirection;
+			if(unfixedTailInfo.alignDirection == "+")
+			{
+				readSeqWithDirection = unfixedTailInfo.readSeqOriginal; // Do not need to copy because we already know the direction in the 4 cases
+			}
+			else
+			{
+				readSeqWithDirection = covertStringToReverseComplement(unfixedTailInfo.readSeqOriginal);
+			}
+
+			///////////////////////////////////////////////////////////////////////////////////////////
+			/////////////////////////  try remapping with splice junction hash ////////////////////////
+			///////////////////////////////////////////////////////////////////////////////////////////
+			//cout << "start SJsearchInSJhash " << endl;
+			bool spliceJunctionFoundInHash;
+
+			if(spliceJunctionHashExists)
+			{
+				/////////////////////////////////////////////////////////////////////////////
+				////////////////////////     position hash     //////////////////////////////
+				/////////////////////////////////////////////////////////////////////////////
+				//spliceJunctionFoundInHash
+				//	= unfixedTailInfo.SJsearchInSJhash(SJ, readSeqWithDirection, indexInfo);
+				/////////////////////////////////////////////////////////////////////////////
+				/////////////////////////     String hash     //////////////////////////////
+				/////////////////////////////////////////////////////////////////////////////
+				spliceJunctionFoundInHash
+					= unfixedTailInfo.SJsearchInSJhash_areaStringHash(SJ, readSeqWithDirection, indexInfo, SJ->areaSize);
+			}
+			else
+			{
+				spliceJunctionFoundInHash = false;
+			}
+
+			//cout << "spliceJunctionFoundInHash: " << spliceJunctionFoundInHash << endl;
+			if(spliceJunctionFoundInHash)
+			{
+				//if((unfixedTailInfo.SJposFromRemapping).size() == 1)
+				int tmpDonerEndPosInRead = (unfixedTailInfo.SJposFromRemappingVec)[0].first;
+				int tmpSpliceJunctionDistance = (unfixedTailInfo.SJposFromRemappingVec)[0].second;
+				int tmpLastMatchLength = readLength - tmpDonerEndPosInRead;
+
+				int tmpNewMismatchToAddInTail = (unfixedTailInfo.SJposFromRemappingVec_mismatch)[0];
+
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+					tmpLastMatchLength, tmpSpliceJunctionDistance, indexInfo, tmpNewMismatchToAddInTail);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+				for(int tmpSJposVec = 1; tmpSJposVec < (unfixedTailInfo.SJposFromRemappingVec).size(); tmpSJposVec++)
+				{
+					int tmpNewMismatchToAddInTail = (unfixedTailInfo.SJposFromRemappingVec_mismatch)[tmpSJposVec];
+
+					tmpDonerEndPosInRead = (unfixedTailInfo.SJposFromRemappingVec)[tmpSJposVec].first;
+					tmpSpliceJunctionDistance = (unfixedTailInfo.SJposFromRemappingVec)[tmpSJposVec].second;
+					tmpLastMatchLength = readLength - tmpDonerEndPosInRead;
+
+					Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+					newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+						tmpLastMatchLength, tmpSpliceJunctionDistance, indexInfo, tmpNewMismatchToAddInTail);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+
+				continue;
+			}
+
+			///////////////////////////////////////////////////////////////////////////////////////////
+			///////////////////////// remapping with splice junction hash failed //////////////////////
+			///////////////////////////////////////////////////////////////////////////////////////////
+			//cout << "start to get possible SJ pos" << endl;
+			unfixedTailInfo.getPossibleSJpos(readSeqWithDirection, indexInfo->chromString, indexInfo);
+			//cout << "finish getting possible SJ pos " << endl;
+			///////////////////////////////////////////////////////////////////////////////////////////
+			///////////////////////////////   check possible SJs    ///////////////////////////////////
+
+			int midPartMapPosSecondLevelIndexNO
+				= indexInfo->getSecondLevelIndexFromChrAndPos(unfixedTailInfo.midPartMapChrInt,
+					unfixedTailInfo.midPartMapPosInChr);
+			midPartMapPosSecondLevelIndexNO --;
+			//cout << "midPartMapPosSecondLevelIndexNO: " << midPartMapPosSecondLevelIndexNO << endl;
+			if(
+				((indexInfo->invalidSecondLevelIndexNOset).find(midPartMapPosSecondLevelIndexNO+1))
+				!= (indexInfo->invalidSecondLevelIndexNOset).end()
+				)
+			{
+				//delete(seg2ndOriInfo);
+				//delete(unmapEndInfo);
+				continue;
+			}
+
+
+			unsigned int midPartMapPosForLongTailInSecondLevelIndex = unfixedTailInfo.midPartMapPosInChr -
+				((unfixedTailInfo.midPartMapPosInChr)/(indexInfo->secondLevelIndexNormalSize))*(indexInfo->secondLevelIndexNormalSize) ;
+			//cout << "SecondLevelIndexNO: " << midPartMapPosSecondLevelIndexNO << endl;
+
+			//   check GTAG splice junctions
+			//cout << "SJposInRead: " << endl;
+			for(int tmp = 0; tmp < (unfixedTailInfo.possiGTAGpos).size(); tmp++)
+			{
+				int tmpSJposInRead = unfixedTailInfo.possiGTAGpos[tmp];
+
+				//cout << "SJposInRead: " << tmpSJposInRead << endl;
+				if(readLength - tmpSJposInRead + 1 < min_anchor_length)
+					continue;
+				string tmpShortAnchorStr
+					= readSeqWithDirection.substr(tmpSJposInRead-1, readLength - tmpSJposInRead + 1);
+
+				string targetMappingStr = "AG" + tmpShortAnchorStr;
+				//cout << "targetStr: " << targetMappingStr << endl;
+				char* tailChar = const_cast<char*>(targetMappingStr.c_str());
+				int targetMappingNum = 0;
+				unsigned int targetMappingLoc[100];
+
+				unsigned int finalMidPartMappingPos
+					= unfixedTailInfo.midPartMapPosInWholeGenome + tmpSJposInRead - readLength + unfixedTailInfo.unfixedTailLength - 1;
+
+				bool tailSegMapMain = mapMainSecondLevelForTargetMapping_compressedIndex(tailChar,
+						secondLevelSa[midPartMapPosSecondLevelIndexNO],
+						secondLevelLcpCompress[midPartMapPosSecondLevelIndexNO],
+						secondLevelChildTab[midPartMapPosSecondLevelIndexNO],
+						secondLevelDetChild[midPartMapPosSecondLevelIndexNO],
+						secondLevelChrom[midPartMapPosSecondLevelIndexNO],
+						targetMappingStr.length(), 3000000, unfixedTailInfo.midPartMapPosInWholeGenome,
+						midPartMapPosForLongTailInSecondLevelIndex, &targetMappingNum, targetMappingLoc
+						, indexInfo);
+
+				if(tailSegMapMain)// select the nearest short anchor location
+				{
+					int tmpMinSpliceDistance = 300001;
+					for(int tmp2 = 0; tmp2 < targetMappingNum; tmp2++)
+					{
+						int tmpSpliceDistance = targetMappingLoc[tmp2] - finalMidPartMappingPos + 1;
+						if((tmpSpliceDistance < 300000)
+							&& (tmpSpliceDistance > -4))
+						{
+							if(tmpSpliceDistance < tmpMinSpliceDistance)
+								tmpMinSpliceDistance = tmpSpliceDistance;
+						}
+					}
+					if(tmpMinSpliceDistance < 300000)
+					{
+						(unfixedTailInfo.GTAGsjPos).push_back(pair<int,int>(unfixedTailInfo.possiGTAGpos[tmp], tmpMinSpliceDistance));
+						(unfixedTailInfo.GTAGsjPos_mismatch).push_back(unfixedTailInfo.possiGTAGpos_mismatch[tmp]);
+					}
+				}
+			}
+
+			//   check CTAC splice junctions
+			for(int tmp = 0; tmp < (unfixedTailInfo.possiCTACpos).size(); tmp++)
+			{
+				int tmpSJposInRead = unfixedTailInfo.possiCTACpos[tmp];
+
+				//cout << "SJposInRead: " << tmpSJposInRead << endl;
+				if(readLength - tmpSJposInRead + 1 < min_anchor_length)
+					continue;
+				string tmpShortAnchorStr
+					= readSeqWithDirection.substr(tmpSJposInRead-1, readLength - tmpSJposInRead + 1);
+
+				string targetMappingStr = "AC" + tmpShortAnchorStr;
+				//cout << "targetStr: " << targetMappingStr << endl;
+				char* tailChar = const_cast<char*>(targetMappingStr.c_str());
+				int targetMappingNum = 0;
+				unsigned int targetMappingLoc[100];
+
+				unsigned int finalMidPartMappingPos
+					= unfixedTailInfo.midPartMapPosInWholeGenome + tmpSJposInRead - readLength + unfixedTailInfo.unfixedTailLength - 1;
+
+				bool tailSegMapMain = mapMainSecondLevelForTargetMapping_compressedIndex(tailChar,
+					secondLevelSa[midPartMapPosSecondLevelIndexNO],
+					secondLevelLcpCompress[midPartMapPosSecondLevelIndexNO],
+					secondLevelChildTab[midPartMapPosSecondLevelIndexNO],
+					secondLevelDetChild[midPartMapPosSecondLevelIndexNO],
+					secondLevelChrom[midPartMapPosSecondLevelIndexNO],
+					targetMappingStr.length(), 3000000, unfixedTailInfo.midPartMapPosInWholeGenome,
+					midPartMapPosForLongTailInSecondLevelIndex, &targetMappingNum, targetMappingLoc
+					, indexInfo);
+
+
+				if(tailSegMapMain)
+				{
+					int tmpMinSpliceDistance = 300001;
+					for(int tmp2 = 0; tmp2 < targetMappingNum; tmp2++)
+					{
+						int tmpSpliceDistance = targetMappingLoc[tmp2] - finalMidPartMappingPos + 1;
+						if((tmpSpliceDistance < 300000)
+							&& (tmpSpliceDistance > -4))
+						{
+							if(tmpSpliceDistance < tmpMinSpliceDistance)
+								tmpMinSpliceDistance = tmpSpliceDistance;
+						}
+					}
+					if(tmpMinSpliceDistance < 300000)
+					{
+						(unfixedTailInfo.CTACsjPos).push_back(pair<int,int>(unfixedTailInfo.possiCTACpos[tmp], tmpMinSpliceDistance));
+						(unfixedTailInfo.CTACsjPos_mismatch).push_back(unfixedTailInfo.possiCTACpos_mismatch[tmp]);
+					}
+				}
+			}
+
+			if((unfixedTailInfo.GTAGsjPos).size() > 0)
+			{
+				int tmpNewMismatchToAddInTail = (unfixedTailInfo.GTAGsjPos_mismatch)[0];
+
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+					readLength - (unfixedTailInfo.GTAGsjPos[0]).first + 1, (unfixedTailInfo.GTAGsjPos[0]).second, indexInfo,
+						tmpNewMismatchToAddInTail);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+
+				for(int tmp = 1; tmp < (unfixedTailInfo.GTAGsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInTail = unfixedTailInfo.GTAGsjPos_mismatch[tmp];
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+						readLength - (unfixedTailInfo.GTAGsjPos[tmp]).first + 1, (unfixedTailInfo.GTAGsjPos[tmp]).second, indexInfo,
+							tmpNewMismatchToAddInTail);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+
+				for(int tmp = 0; tmp < (unfixedTailInfo.CTACsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInTail = unfixedTailInfo.CTACsjPos_mismatch[tmp];//0;
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+						readLength - (unfixedTailInfo.CTACsjPos[tmp]).first + 1, (unfixedTailInfo.CTACsjPos[tmp]).second, indexInfo,
+							tmpNewMismatchToAddInTail);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+			}
+			else if((unfixedTailInfo.CTACsjPos).size() > 0)
+			{
+				int tmpNewMismatchToAddInTail = unfixedTailInfo.CTACsjPos_mismatch[0];
+
+				Alignment_Info* newTmpAlignInfo = new Alignment_Info();
+				newTmpAlignInfo	= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+					readLength - (unfixedTailInfo.CTACsjPos[0]).first + 1, (unfixedTailInfo.CTACsjPos[0]).second, indexInfo,
+						tmpNewMismatchToAddInTail);
+
+				//(peAlignInfo->norAlignmentInfo_PE_1)[tmpAlignmentNO] = newTmpAlignInfo;
+				peAlignInfo->fixHeadTail_replaceWithNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType, tmpAlignmentNO);
+
+				for(int tmp = 1; tmp < (unfixedTailInfo.CTACsjPos).size(); tmp++)
+				{
+					int tmpNewMismatchToAddInTail = unfixedTailInfo.CTACsjPos_mismatch[tmp]; //0;
+
+					Alignment_Info* newTmpAlignInfo
+						= tmpAlignmentInfo->newAlignInfoAfterAddTailInfo2SoftClippingAlignment(
+						readLength - (unfixedTailInfo.CTACsjPos[tmp]).first + 1, (unfixedTailInfo.CTACsjPos[tmp]).second, indexInfo,
+							tmpNewMismatchToAddInTail);
+					//(peAlignInfo->norAlignmentInfo_PE_1).push_back(newTmpAlignInfo);
+					peAlignInfo->fixHeadTail_addNewAlignInfo(newTmpAlignInfo, tmpAlignInfoType);
+				}
+			}
+			else
+			{
+			}
+
+		}
+	}
+*/
+}
+
+void fixOneEndReadForward(Read* read, Read* incompleteEndRead, PE_Read_Alignment_Info* peAlignInfo,
+	vector<Alignment_Info*> alignmentVector, SecondLevelChromosomeList* secondLevelChromosomeList)
+{
+	string chrNameStr;
+	int chrMapPos_start;
+	int chrMapPos_end;
+
+	int mapPosIntervalStart;
+	int mapPosIntervalEnd;
+	int secondLevelIndexNum; // start from 1
+
+	int chrPosStartIn2ndLevelIndex;
+
+	for(int i = 0; i < alignmentVector.size();i++)
+	{
+		Alignment_Info* alignmentInfo = alignmentVector[i];
+
+		mapPosIntervalStart = alignmentInfo->alignChromPos;
+		mapPosIntervalEnd = alignmentInfo->getEndMatchedPosInChr() + READ_ALIGN_AREA_LENGTH;
+
+		SecondLevelChromosome* secondLevelChromosome =
+			secondLevelChromosomeList->getSecondLevelChromosome(
+					alignmentInfo->alignChromName,
+					alignmentInfo->alignChromPos);
+
+		if(secondLevelChromosome == NULL)
+			continue;
+
+		MappedRead* mappedRead = new MappedRead(read, secondLevelChromosome);
+
+		Path* pathInfo = new Path();
+		pathInfo->getPossiPathFromSeg(mappedRead);
+
+		int pathValidNum = pathInfo->pathValidNumInt();
+		if(pathValidNum > 10)
+		{
+			delete pathInfo;
+			delete mappedRead;
+			continue;
+		}
+
+		Gap* gapInfo = new Gap();
+		gapInfo->fixGapInPath(pathInfo, mappedRead, secondLevelChromosome->getIndexInfo());
+
+		/* FIXME - FIX THIS LATER 5/28/14 KLM
+		if(pathInfo->finalPathVec.size() == 1)
+			peAlignInfo->pushBackPathInfo2PeAlignInfo(pathInfo, End1OrEnd2, NorOrRcm, indexInfo);
+
+		peAlignInfo->pushBackPathInfo2PeAlignInfo(pathInfo, End1OrEnd2, NorOrRcm, indexInfo);
+		 */
+		delete gapInfo;
+		delete pathInfo;
+		delete mappedRead;
+	}
+}
+
+void fixOneEndUnmapped(PairedEndRead* peReadInfo, PE_Read_Alignment_Info* peAlignInfo,
+		SecondLevelChromosomeList* secondLevelChromosomeList)
+{
+	// Fix the first read's ends
+	fixOneEndReadForward(peReadInfo->getFirstRead(), peReadInfo->getSecondReadReverseComplement(),
+		peAlignInfo, peAlignInfo->norAlignmentInfo_PE_1, secondLevelChromosomeList); // End1OrEnd2=true, NorOrRcm=true
+
+	fixOneEndReadForward(peReadInfo->getSecondReadReverseComplement(), peReadInfo->getFirstRead(),
+		peAlignInfo, peAlignInfo->rcmAlignmentInfo_PE_2, secondLevelChromosomeList); // End1OrEnd2=false, NorOrRcm=false
+}
+
